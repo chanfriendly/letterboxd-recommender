@@ -2,7 +2,8 @@
 
 A self-hosted web app that recommends films based on your Letterboxd watch history. Works great for couples or small groups — it combines everyone's ratings, excludes anything anyone has already seen, and finds films you'd all enjoy.
 
-![Screenshot of the recommendations page showing a genre mood filter and a grid of film posters]
+<img width="745" height="947" alt="image" src="https://github.com/user-attachments/assets/05562148-7ecc-4efb-9701-a6c2731995fe" />
+
 
 ## Features
 
