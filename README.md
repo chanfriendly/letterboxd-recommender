@@ -107,6 +107,12 @@ To expose the app externally, put it behind a reverse proxy (nginx, Traefik) or 
 docker exec tailscale tailscale funnel --bg 8020
 ```
 
+## Known issues / next session
+
+- **Movie links** — clicking a film poster opens the wrong Letterboxd URL in some cases (likely films imported via TMDB recommendations that have a synthetic `tmdb-{id}` slug rather than a real Letterboxd slug). Need to fall back to `https://www.themoviedb.org/movie/{tmdb_id}` when the slug is synthetic.
+- **Already-seen films occasionally appearing** — a small number of watched films slip through the seen-exclusion filter. Likely affects films whose Letterboxd slug in the ZIP doesn't match the slug stored from a TMDB-seeded recommendation. Needs a dedup pass keyed on `tmdb_id` rather than just `film.id`.
+- **Limited recommendation results** — result sets are sometimes smaller than expected, especially for niche genre combinations. Investigate whether the candidate pool is being over-filtered before CF scoring, and consider relaxing the cold-start threshold or expanding TMDB recommendation seed depth.
+
 ## License
 
 MIT
