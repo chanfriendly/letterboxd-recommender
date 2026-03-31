@@ -4,61 +4,22 @@
 
 <div class="max-w-2xl mx-auto">
   <div class="text-center mb-10">
-    <h1 class="text-4xl font-bold mb-3">What should you watch next?</h1>
-    <p class="text-gray-400 text-lg">
-      Enter your Letterboxd username, pick a mood, and get recommendations
-      matched to your taste profile.
-    </p>
+    <h1 class="text-4xl font-bold mb-3">What should you watch tonight?</h1>
+    <p id="subtitle" class="text-gray-400 text-lg">Loading profiles…</p>
   </div>
 
-  <form
-    id="rec-form"
-    hx-post="/api/recommend"
-    hx-target="#result-area"
-    hx-swap="innerHTML"
-    hx-ext="json-enc"
-    hx-indicator="#spinner"
-    class="bg-[#16213e] rounded-2xl p-8 shadow-xl space-y-6"
-    onsubmit="startPolling(event)"
-  >
-    <!-- Username -->
-    <div>
-      <label class="block text-sm font-semibold text-gray-300 mb-2" for="username">
-        Letterboxd Username
-      </label>
-      <input
-        id="username"
-        name="username"
-        type="text"
-        placeholder="e.g. chanfriendly"
-        autocomplete="off"
-        required
-        class="w-full bg-[#0f3460] border border-gray-600 rounded-lg px-4 py-3
-               text-white placeholder-gray-500 focus:outline-none focus:border-[#00c030]
-               focus:ring-1 focus:ring-[#00c030] transition"
-      />
-    </div>
-
-    <!-- Genre picker -->
+  <div class="bg-[#16213e] rounded-2xl p-8 shadow-xl space-y-6">
     <div>
       <label class="block text-sm font-semibold text-gray-300 mb-3">
         What are you in the mood for? <span class="text-gray-500 font-normal">(pick any)</span>
       </label>
-      <div class="flex flex-wrap gap-2" id="genre-chips">
+      <div class="flex flex-wrap gap-2">
         {% for genre in genres %}
         <div class="genre-chip">
-          <input
-            type="checkbox"
-            id="genre-{{ genre.id }}"
-            name="genre_ids"
-            value="{{ genre.id }}"
-            class="hidden"
-          />
-          <label
-            for="genre-{{ genre.id }}"
-            class="cursor-pointer select-none px-4 py-2 rounded-full border border-gray-600
-                   text-sm text-gray-300 hover:border-[#00c030] hover:text-white transition"
-          >
+          <input type="checkbox" id="genre-{{ genre.id }}" value="{{ genre.id }}" class="hidden genre-cb"/>
+          <label for="genre-{{ genre.id }}"
+                 class="cursor-pointer select-none px-4 py-2 rounded-full border border-gray-600
+                        text-sm text-gray-300 hover:border-[#00c030] hover:text-white transition">
             {{ genre.name }}
           </label>
         </div>
@@ -66,55 +27,67 @@
       </div>
     </div>
 
-    <button
-      type="submit"
-      class="w-full bg-[#00c030] hover:bg-[#00a828] text-white font-bold py-3 rounded-lg
-             transition text-lg tracking-wide"
-    >
-      Find My Next Film
+    <button id="submit-btn" onclick="getRecommendations()"
+            class="w-full bg-[#00c030] hover:bg-[#00a828] text-white font-bold py-3 rounded-lg
+                   transition text-lg tracking-wide">
+      Find Something to Watch
     </button>
-  </form>
+  </div>
 
-  <!-- Spinner / status -->
-  <div id="spinner" class="htmx-indicator mt-8 text-center">
+  <div id="spinner" class="hidden mt-8 text-center">
     <div class="inline-flex items-center gap-3 bg-[#16213e] rounded-xl px-6 py-4 shadow">
       <svg class="animate-spin h-5 w-5 text-[#00c030]" fill="none" viewBox="0 0 24 24">
         <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
         <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/>
       </svg>
-      <span id="status-text" class="text-gray-300">Scraping your Letterboxd profile...</span>
+      <span id="status-text" class="text-gray-300">Building recommendations…</span>
     </div>
   </div>
 
-  <!-- Results area -->
   <div id="result-area" class="mt-10"></div>
 </div>
 
 <script>
-  // Collect genre checkboxes into a JSON-friendly array before submit
-  const form = document.getElementById('rec-form');
-
   let pollInterval = null;
 
-  function startPolling(evt) {
-    // Let HTMX handle the POST, but intercept to start polling after job_id arrives
-    // We override the hx-post response handling via htmx:afterRequest
-  }
-
-  document.body.addEventListener('htmx:afterRequest', function (e) {
-    if (e.detail.elt.id !== 'rec-form') return;
-    try {
-      const resp = JSON.parse(e.detail.xhr.responseText);
-      if (resp.job_id) {
-        pollForResults(resp.job_id);
-      }
-    } catch (_) {}
+  fetch('/api/profiles').then(r => r.json()).then(profiles => {
+    const sub = document.getElementById('subtitle');
+    if (!profiles.length) {
+      sub.innerHTML = `No profiles yet. <a href="/setup" class="text-[#00c030] hover:underline">Go to Setup →</a>`;
+    } else {
+      const names = profiles.map(p => `<span class="text-white font-medium">${esc(p.display_name)}</span>`);
+      const joined = names.length <= 2
+        ? names.join(' &amp; ')
+        : names.slice(0, -1).join(', ') + ' &amp; ' + names[names.length - 1];
+      sub.innerHTML = `Recommending for ${joined} · <a href="/setup" class="text-[#00c030] hover:underline text-sm">Edit</a>`;
+    }
   });
 
-  function pollForResults(jobId) {
-    document.getElementById('spinner').style.display = 'flex';
-    document.getElementById('spinner').classList.remove('htmx-indicator');
+  async function getRecommendations() {
+    const genreIds = Array.from(document.querySelectorAll('.genre-cb:checked'))
+                          .map(cb => parseInt(cb.value));
 
+    document.getElementById('submit-btn').disabled = true;
+    document.getElementById('spinner').classList.remove('hidden');
+    document.getElementById('result-area').innerHTML = '';
+    document.getElementById('status-text').textContent = 'Checking for new ratings…';
+
+    const res = await fetch('/api/recommend', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ genre_ids: genreIds }),
+    });
+    const data = await res.json();
+
+    if (!res.ok) {
+      showError(data.detail || 'Could not start job');
+      return;
+    }
+
+    pollForResults(data.job_id);
+  }
+
+  function pollForResults(jobId) {
     clearInterval(pollInterval);
     pollInterval = setInterval(async () => {
       const res = await fetch(`/api/status/${jobId}`);
@@ -122,27 +95,22 @@
 
       if (data.status === 'running') {
         document.getElementById('status-text').textContent =
-          'Analysing ratings and finding similar viewers...';
+          'Matching films to your taste…';
       }
-
       if (data.status === 'complete') {
         clearInterval(pollInterval);
-        document.getElementById('spinner').style.display = 'none';
-        renderResults(data.results || [], data.username);
+        document.getElementById('spinner').classList.add('hidden');
+        document.getElementById('submit-btn').disabled = false;
+        renderResults(data.results || []);
       }
-
       if (data.status === 'failed') {
         clearInterval(pollInterval);
-        document.getElementById('spinner').style.display = 'none';
-        document.getElementById('result-area').innerHTML =
-          `<div class="bg-red-900/40 border border-red-700 rounded-xl p-6 text-red-300">
-            <strong>Something went wrong:</strong> ${data.error || 'Unknown error'}
-          </div>`;
+        showError(data.error || 'Unknown error');
       }
     }, 2500);
   }
 
-  function renderResults(films, username) {
+  function renderResults(films) {
     const area = document.getElementById('result-area');
     if (!films.length) {
       area.innerHTML = `
@@ -157,24 +125,21 @@
          class="poster-card group relative bg-[#16213e] rounded-xl overflow-hidden
                 shadow-lg hover:scale-105 transition-transform duration-200 block">
         ${f.poster_url
-          ? `<img src="${f.poster_url}" alt="${esc(f.title)}"
-                  class="w-full aspect-[2/3] object-cover"/>`
-          : `<div class="w-full aspect-[2/3] bg-[#0f3460] flex items-center justify-center text-gray-500 text-sm p-4 text-center">${esc(f.title)}</div>`
+          ? `<img src="${f.poster_url}" alt="${esc(f.title)}" class="w-full aspect-[2/3] object-cover"/>`
+          : `<div class="w-full aspect-[2/3] bg-[#0f3460] flex items-center justify-center
+                        text-gray-500 text-sm p-4 text-center">${esc(f.title)}</div>`
         }
         <div class="poster-overlay absolute inset-0 bg-black/75 opacity-0 transition-opacity
                     flex flex-col justify-end p-4">
           <p class="font-bold text-white text-sm leading-tight">${esc(f.title)}</p>
           ${f.year ? `<p class="text-gray-300 text-xs mt-1">${f.year}</p>` : ''}
           ${f.predicted_score != null
-            ? `<p class="text-[#00c030] text-xs mt-1">Match: ${(f.predicted_score).toFixed(1)} / 5</p>`
+            ? `<p class="text-[#00c030] text-xs mt-1">Match: ${f.predicted_score.toFixed(1)}/5</p>`
             : f.tmdb_rating
             ? `<p class="text-[#00c030] text-xs mt-1">TMDB: ${f.tmdb_rating.toFixed(1)}</p>`
             : ''
           }
-          ${f.overview
-            ? `<p class="text-gray-400 text-xs mt-2 line-clamp-3">${esc(f.overview)}</p>`
-            : ''
-          }
+          ${f.overview ? `<p class="text-gray-400 text-xs mt-2 line-clamp-3">${esc(f.overview)}</p>` : ''}
         </div>
         <div class="p-3">
           <p class="font-semibold text-sm truncate">${esc(f.title)}</p>
@@ -185,7 +150,7 @@
 
     area.innerHTML = `
       <div class="flex items-center justify-between mb-4">
-        <h2 class="text-xl font-bold">Recommended for <span class="text-[#00c030]">${esc(username)}</span></h2>
+        <h2 class="text-xl font-bold">Tonight's picks</h2>
         <span class="text-gray-400 text-sm">${films.length} films</span>
       </div>
       <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
@@ -193,37 +158,18 @@
       </div>`;
   }
 
+  function showError(msg) {
+    document.getElementById('result-area').innerHTML =
+      `<div class="bg-red-900/40 border border-red-700 rounded-xl p-6 text-red-300">
+        <strong>Something went wrong:</strong> ${esc(msg)}
+      </div>`;
+    document.getElementById('spinner').classList.add('hidden');
+    document.getElementById('submit-btn').disabled = false;
+  }
+
   function esc(str) {
     if (!str) return '';
     return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
   }
-
-  // Wire up form to send JSON with genre_ids array
-  form.addEventListener('submit', function(e) {
-    e.preventDefault();
-    const username = document.getElementById('username').value.trim();
-    const genreIds = Array.from(
-      document.querySelectorAll('input[name="genre_ids"]:checked')
-    ).map(cb => parseInt(cb.value));
-
-    fetch('/api/recommend', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username, genre_ids: genreIds }),
-    })
-    .then(r => r.json())
-    .then(data => {
-      if (data.job_id) {
-        document.getElementById('status-text').textContent =
-          'Scraping your Letterboxd profile...';
-        document.getElementById('spinner').style.display = 'flex';
-        document.getElementById('spinner').classList.remove('htmx-indicator');
-        pollForResults(data.job_id);
-      } else if (data.detail) {
-        document.getElementById('result-area').innerHTML =
-          `<div class="bg-red-900/40 border border-red-700 rounded-xl p-6 text-red-300">${esc(data.detail)}</div>`;
-      }
-    });
-  });
 </script>
 {% endblock %}

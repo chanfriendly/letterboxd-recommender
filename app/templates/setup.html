@@ -1,0 +1,223 @@
+{% extends "base.html" %}
+{% block title %}Setup — Letterboxd Recommender{% endblock %}
+{% block content %}
+
+<div class="max-w-xl mx-auto">
+  <div class="mb-8">
+    <h1 class="text-3xl font-bold mb-2">Setup</h1>
+    <p class="text-gray-400">
+      Add each person's Letterboxd profile. Import their full watch history by
+      uploading a Letterboxd data export — ratings and watched films are picked
+      up automatically. New entries sync via RSS every 6 hours after that.
+    </p>
+  </div>
+
+  <!-- How to export -->
+  <div class="bg-[#0f3460] rounded-xl p-4 text-sm mb-8">
+    <p class="font-semibold text-white mb-2">How to get your Letterboxd data export</p>
+    <ol class="list-decimal list-inside space-y-1 text-gray-400">
+      <li>Go to <span class="text-white">letterboxd.com/settings/data/</span> (must be logged in)</li>
+      <li>Click <span class="text-white">Export Your Data</span> and wait for the email</li>
+      <li>Download the <span class="text-white">.zip</span> file from the email link</li>
+      <li>Upload it below — no need to unzip</li>
+    </ol>
+  </div>
+
+  <!-- Existing profiles -->
+  <div id="profile-list" class="mb-8 space-y-3"></div>
+
+  <!-- Add-person forms -->
+  <div id="add-forms"></div>
+
+  <button onclick="addForm()"
+          class="w-full border border-dashed border-gray-600 hover:border-[#00c030]
+                 text-gray-400 hover:text-white rounded-xl py-3 text-sm transition mt-2 mb-8">
+    + Add another person
+  </button>
+
+  <p class="text-center text-gray-600 text-xs">
+    Only the username is stored after import. The ZIP file is deleted immediately after processing.
+  </p>
+</div>
+
+<script>
+  let formCount = 0;
+
+  function addForm() {
+    const id = ++formCount;
+    const div = document.createElement('div');
+    div.id = `form-${id}`;
+    div.className = 'bg-[#16213e] rounded-2xl p-6 mb-4 shadow-xl';
+    div.innerHTML = `
+      <h2 class="text-lg font-semibold mb-4 text-[#00c030]">New Person</h2>
+      <div class="space-y-4">
+        <div>
+          <label class="block text-sm text-gray-400 mb-1">Display Name <span class="text-gray-600">(optional)</span></label>
+          <input id="dname-${id}" type="text" placeholder="e.g. Chan"
+                 class="w-full bg-[#0f3460] border border-gray-600 rounded-lg px-4 py-2.5 text-white
+                        placeholder-gray-500 focus:outline-none focus:border-[#00c030] transition"/>
+        </div>
+        <div>
+          <label class="block text-sm text-gray-400 mb-1">Letterboxd Username</label>
+          <input id="uname-${id}" type="text" placeholder="username" autocomplete="off"
+                 class="w-full bg-[#0f3460] border border-gray-600 rounded-lg px-4 py-2.5 text-white
+                        placeholder-gray-500 focus:outline-none focus:border-[#00c030] transition"/>
+        </div>
+        <div>
+          <label class="block text-sm text-gray-400 mb-1">Letterboxd Data Export <span class="text-gray-600">(.zip)</span></label>
+          <input id="file-${id}" type="file" accept=".zip"
+                 class="w-full bg-[#0f3460] border border-gray-600 rounded-lg px-4 py-2.5 text-white
+                        file:mr-4 file:py-1 file:px-3 file:rounded file:border-0
+                        file:text-sm file:bg-[#00c030] file:text-white file:cursor-pointer
+                        focus:outline-none focus:border-[#00c030] transition"/>
+        </div>
+        <div id="progress-${id}" class="hidden">
+          <div class="flex items-center gap-3 text-sm text-gray-300 bg-[#0f3460] rounded-lg px-4 py-3">
+            <svg id="spin-${id}" class="animate-spin h-4 w-4 text-[#00c030] shrink-0" fill="none" viewBox="0 0 24 24">
+              <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+              <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/>
+            </svg>
+            <span id="progress-text-${id}">Saving…</span>
+          </div>
+        </div>
+        <button onclick="saveProfile(${id})" id="save-btn-${id}"
+                class="w-full bg-[#00c030] hover:bg-[#00a828] text-white font-semibold
+                       py-2.5 rounded-lg transition text-sm">
+          Save &amp; Import
+        </button>
+      </div>
+    `;
+    document.getElementById('add-forms').appendChild(div);
+  }
+
+  async function saveProfile(id) {
+    const username = document.getElementById(`uname-${id}`).value.trim();
+    const displayName = document.getElementById(`dname-${id}`).value.trim();
+    const fileInput = document.getElementById(`file-${id}`);
+    const file = fileInput.files[0];
+
+    if (!username) { alert('Username is required'); return; }
+    if (!file) { alert('Please select your Letterboxd data export ZIP file'); return; }
+
+    document.getElementById(`save-btn-${id}`).disabled = true;
+    document.getElementById(`progress-${id}`).classList.remove('hidden');
+    setProgress(id, 'Creating profile…', false);
+
+    // Step 1: create/update profile record
+    const res = await fetch('/api/profiles', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, display_name: displayName }),
+    });
+    const data = await res.json();
+
+    if (!res.ok) {
+      setProgress(id, `Error: ${data.detail}`, true);
+      document.getElementById(`save-btn-${id}`).disabled = false;
+      return;
+    }
+
+    // Step 2: upload ZIP
+    setProgress(id, 'Uploading data export…', false);
+    const formData = new FormData();
+    formData.append('file', file);
+
+    const uploadRes = await fetch(`/api/profiles/${data.id}/upload`, {
+      method: 'POST',
+      body: formData,
+    });
+    const uploadData = await uploadRes.json();
+
+    if (!uploadRes.ok) {
+      setProgress(id, `Upload error: ${uploadData.detail}`, true);
+      document.getElementById(`save-btn-${id}`).disabled = false;
+      return;
+    }
+
+    setProgress(id, 'Processing watch history (this may take a few minutes)…', false);
+    pollImport(id, data.id);
+  }
+
+  function pollImport(formId, profileId) {
+    const interval = setInterval(async () => {
+      const res = await fetch('/api/profiles');
+      const profiles = await res.json();
+      const profile = profiles.find(p => p.id === profileId);
+      if (!profile) { clearInterval(interval); return; }
+
+      if (profile.scrape_status === 'scraping') {
+        setProgress(formId, 'Importing watch history — enriching with TMDB metadata…', false);
+      } else if (profile.scrape_status === 'ready') {
+        clearInterval(interval);
+        setProgress(formId, `✓ Import complete for ${profile.display_name}`, false, true);
+        document.getElementById(`form-${formId}`).style.opacity = '0.7';
+        loadExistingProfiles();
+      } else if (profile.scrape_status === 'error') {
+        clearInterval(interval);
+        setProgress(formId, `Import failed: ${profile.scrape_error || 'Unknown error'}`, true);
+        document.getElementById(`save-btn-${formId}`).disabled = false;
+        document.getElementById(`save-btn-${formId}`).textContent = 'Retry';
+      }
+    }, 3000);
+  }
+
+  function setProgress(id, text, isError, isDone) {
+    const el = document.getElementById(`progress-text-${id}`);
+    const spin = document.getElementById(`spin-${id}`);
+    el.textContent = text;
+    el.className = isError ? 'text-red-400' : isDone ? 'text-green-400' : 'text-gray-300';
+    if (isError || isDone) spin.classList.add('hidden');
+  }
+
+  async function deleteProfile(profileId) {
+    if (!confirm('Remove this profile and all their data?')) return;
+    await fetch(`/api/profiles/${profileId}`, { method: 'DELETE' });
+    loadExistingProfiles();
+  }
+
+  async function retriggerImport(profileId) {
+    await fetch('/api/refresh', { method: 'POST' });
+    setTimeout(loadExistingProfiles, 500);
+  }
+
+  function loadExistingProfiles() {
+    fetch('/api/profiles').then(r => r.json()).then(profiles => {
+      const list = document.getElementById('profile-list');
+      if (!profiles.length) { list.innerHTML = ''; return; }
+
+      const statusBadge = p => {
+        if (p.scrape_status === 'ready')    return '<span class="text-xs text-green-400">✓ ready</span>';
+        if (p.scrape_status === 'scraping') return '<span class="text-xs text-yellow-400 animate-pulse">⟳ importing…</span>';
+        if (p.scrape_status === 'error')    return '<span class="text-xs text-red-400">✗ error</span>';
+        return '<span class="text-xs text-gray-500">pending</span>';
+      };
+
+      list.innerHTML = `
+        <h2 class="text-base font-semibold text-gray-400 mb-2">Saved profiles</h2>
+        ${profiles.map(p => `
+          <div class="flex items-center justify-between bg-[#16213e] rounded-xl px-4 py-3">
+            <div class="flex items-center gap-3">
+              ${statusBadge(p)}
+              <span class="font-semibold text-sm">${esc(p.display_name)}</span>
+              <span class="text-gray-500 text-xs">${esc(p.username)}</span>
+            </div>
+            <div class="flex gap-3 text-xs">
+              <button onclick="retriggerImport(${p.id})"
+                      class="text-gray-500 hover:text-[#00c030] transition">Re-import</button>
+              <button onclick="deleteProfile(${p.id})"
+                      class="text-gray-500 hover:text-red-400 transition">Remove</button>
+            </div>
+          </div>
+        `).join('')}
+      `;
+    });
+  }
+
+  function esc(s) {
+    return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+
+  loadExistingProfiles();
+  addForm();
+</script>
+{% endblock %}

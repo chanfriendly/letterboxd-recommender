@@ -23,15 +23,22 @@
       <circle cx="12" cy="12" r="10"/>
     </svg>
     <span class="text-xl font-bold tracking-tight">Letterboxd Recommender</span>
+    <nav class="ml-auto flex gap-4 text-sm">
+      <a href="/" class="text-gray-400 hover:text-white transition">Home</a>
+      <a href="/setup" class="text-gray-400 hover:text-white transition">Setup</a>
+    </nav>
   </header>
 
   <main class="max-w-5xl mx-auto px-4 py-10">
     {% block content %}{% endblock %}
   </main>
 
-  <footer class="text-center text-gray-500 text-sm py-6 border-t border-gray-800">
-    Film data via <a href="https://www.themoviedb.org" class="text-[#00c030] hover:underline" target="_blank">TMDB</a>
-    &bull; Ratings from <a href="https://letterboxd.com" class="text-[#00c030] hover:underline" target="_blank">Letterboxd</a>
+  <footer class="text-center text-sm py-8 border-t border-gray-800 space-y-2">
+    <p class="text-gray-300 italic">For Andrea: My love, my life, for life.</p>
+    <p class="text-gray-600">
+      Film data via <a href="https://www.themoviedb.org" class="hover:text-gray-400 transition" target="_blank">TMDB</a>
+      &bull; Ratings from <a href="https://letterboxd.com" class="hover:text-gray-400 transition" target="_blank">Letterboxd</a>
+    </p>
   </footer>
 </body>
 </html>

@@ -66,6 +66,37 @@ class TMDBClient:
             pass
         return None
 
+    async def get_recommendations(self, tmdb_id: int, pages: int = 3) -> list[dict]:
+        """
+        Fetch TMDB's curated recommendations for a film (up to `pages` pages).
+        Returns list of {tmdb_id, title, year, poster_url, tmdb_rating, genre_ids}.
+        """
+        results = []
+        for page in range(1, pages + 1):
+            try:
+                resp = await self._client.get(
+                    f"/movie/{tmdb_id}/recommendations", params={"page": page}
+                )
+                resp.raise_for_status()
+                data = resp.json().get("results", [])
+                if not data:
+                    break
+                for m in data:
+                    results.append({
+                        "tmdb_id": m["id"],
+                        "title": m.get("title", ""),
+                        "year": (m.get("release_date") or "")[:4] or None,
+                        "poster_url": (
+                            f"{POSTER_BASE}{m['poster_path']}"
+                            if m.get("poster_path") else None
+                        ),
+                        "tmdb_rating": m.get("vote_average"),
+                        "genre_ids": m.get("genre_ids", []),
+                    })
+            except httpx.HTTPError:
+                break
+        return results
+
     async def get_genres(self) -> list[dict]:
         """Return full TMDB genre list."""
         resp = await self._client.get("/genre/movie/list")

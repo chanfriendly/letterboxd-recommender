@@ -32,3 +32,8 @@ async def index(request: Request):
     return templates.TemplateResponse(
         "index.html", {"request": request, "genres": TMDB_GENRES}
     )
+
+
+@router.get("/setup", response_class=HTMLResponse)
+async def setup(request: Request):
+    return templates.TemplateResponse("setup.html", {"request": request})
