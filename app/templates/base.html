@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>{% block title %}Letterboxd Recommender{% endblock %}</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/htmx.org@2.0.3"></script>
+  <style>
+    .genre-chip input:checked + label {
+      background-color: #00c030;
+      color: #fff;
+      border-color: #00c030;
+    }
+    .poster-card:hover .poster-overlay {
+      opacity: 1;
+    }
+  </style>
+</head>
+<body class="bg-[#1a1a2e] text-gray-100 min-h-screen font-sans">
+  <header class="border-b border-gray-700 px-6 py-4 flex items-center gap-3">
+    <svg class="w-7 h-7 text-[#00c030]" fill="currentColor" viewBox="0 0 24 24">
+      <circle cx="12" cy="12" r="10"/>
+    </svg>
+    <span class="text-xl font-bold tracking-tight">Letterboxd Recommender</span>
+  </header>
+
+  <main class="max-w-5xl mx-auto px-4 py-10">
+    {% block content %}{% endblock %}
+  </main>
+
+  <footer class="text-center text-gray-500 text-sm py-6 border-t border-gray-800">
+    Film data via <a href="https://www.themoviedb.org" class="text-[#00c030] hover:underline" target="_blank">TMDB</a>
+    &bull; Ratings from <a href="https://letterboxd.com" class="text-[#00c030] hover:underline" target="_blank">Letterboxd</a>
+  </footer>
+</body>
+</html>
