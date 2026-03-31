@@ -38,6 +38,8 @@ TMDB_GENRES = [
 
 class RecommendRequest(BaseModel):
     genre_ids: list[int] = []
+    exclude_genre_ids: list[int] = []
+    min_tmdb_rating: float = 0.0
 
 
 class ProfileRequest(BaseModel):
@@ -184,7 +186,11 @@ def create_recommendation_job(
     job = ScrapeJob(
         job_id=job_id,
         username="|".join(p.username for p in profiles),
-        genre_ids=",".join(str(g) for g in body.genre_ids),
+        genre_ids=json.dumps({
+            "include": body.genre_ids,
+            "exclude": body.exclude_genre_ids,
+            "min_rating": body.min_tmdb_rating,
+        }),
         status="pending",
     )
     session.add(job)

@@ -19,6 +19,8 @@ def run_group_recommendations(
     session: Session,
     usernames: list[str],
     genre_ids: list[int],
+    exclude_genre_ids: list[int] | None = None,
+    min_tmdb_rating: float = 0.0,
     top_n: int = 20,
 ) -> list[dict]:
     """
@@ -33,7 +35,7 @@ def run_group_recommendations(
         return []
 
     if len(usernames) == 1:
-        return _run_single(session, usernames[0], genre_ids, top_n)
+        return _run_single(session, usernames[0], genre_ids, exclude_genre_ids or [], min_tmdb_rating, top_n)
 
     users = [
         session.exec(select(LBUser).where(LBUser.username == u)).first()
@@ -65,12 +67,12 @@ def run_group_recommendations(
     ]
 
     if any(c < settings.cf_cold_start_threshold for c in rated_counts):
-        return cold_start_recommendations(session, genre_ids, seen_combined, top_n)
+        return cold_start_recommendations(session, genre_ids, seen_combined, top_n, min_tmdb_rating)
 
-    candidate_film_ids = get_films_by_genres(session, genre_ids)
+    candidate_film_ids = get_films_by_genres(session, genre_ids, exclude_genre_ids)
     candidate_film_ids -= seen_combined
     if not candidate_film_ids:
-        return cold_start_recommendations(session, genre_ids, seen_combined, top_n)
+        return cold_start_recommendations(session, genre_ids, seen_combined, top_n, min_tmdb_rating)
 
     ratings_flat = _load_all_ratings(session)
     if not ratings_flat:
@@ -106,7 +108,7 @@ def run_group_recommendations(
         combined.append((fid, avg * weight))
 
     combined.sort(key=lambda x: x[1], reverse=True)
-    return _enrich(session, combined[:top_n])
+    return _enrich(session, combined[:top_n], min_tmdb_rating)
 
 
 def run_recommendations(
@@ -122,6 +124,8 @@ def _run_single(
     session: Session,
     username: str,
     genre_ids: list[int],
+    exclude_genre_ids: list[int],
+    min_tmdb_rating: float,
     top_n: int,
 ) -> list[dict]:
     user = session.exec(select(LBUser).where(LBUser.username == username)).first()
@@ -141,12 +145,12 @@ def _run_single(
     ).all())
 
     if rated_count < settings.cf_cold_start_threshold:
-        return cold_start_recommendations(session, genre_ids, seen_film_ids, top_n)
+        return cold_start_recommendations(session, genre_ids, seen_film_ids, top_n, min_tmdb_rating)
 
-    candidate_film_ids = get_films_by_genres(session, genre_ids)
+    candidate_film_ids = get_films_by_genres(session, genre_ids, exclude_genre_ids)
     candidate_film_ids -= seen_film_ids
     if not candidate_film_ids:
-        return cold_start_recommendations(session, genre_ids, seen_film_ids, top_n)
+        return cold_start_recommendations(session, genre_ids, seen_film_ids, top_n, min_tmdb_rating)
 
     ratings_flat = _load_all_ratings(session)
     if not ratings_flat:
@@ -166,7 +170,7 @@ def _run_single(
         seen_film_ids=seen_film_ids,
         candidate_film_ids=candidate_film_ids,
     )
-    return _enrich(session, scored[:top_n])
+    return _enrich(session, scored[:top_n], min_tmdb_rating)
 
 
 def _load_all_ratings(session: Session) -> list[dict]:
@@ -180,10 +184,17 @@ def _load_all_ratings(session: Session) -> list[dict]:
     ]
 
 
-def _enrich(session: Session, scored: list[tuple[int, float]]) -> list[dict]:
+def _enrich(
+    session: Session,
+    scored: list[tuple[int, float]],
+    min_tmdb_rating: float = 0.0,
+) -> list[dict]:
     results = []
     for film_id, score in scored:
         film = session.get(Film, film_id)
-        if film:
-            results.append(_film_to_dict(film, score))
+        if not film:
+            continue
+        if min_tmdb_rating > 0 and film.tmdb_rating is not None and film.tmdb_rating < min_tmdb_rating:
+            continue
+        results.append(_film_to_dict(film, score))
     return results

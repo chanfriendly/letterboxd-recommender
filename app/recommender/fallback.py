@@ -12,6 +12,7 @@ def cold_start_recommendations(
     genre_ids: list[int],
     seen_film_ids: set[int],
     top_n: int = 20,
+    min_tmdb_rating: float = 0.0,
 ) -> list[dict]:
     """
     Return top-N films by TMDB rating, filtered by genre and not yet seen.
@@ -36,6 +37,8 @@ def cold_start_recommendations(
         if film.id in seen_film_ids:
             continue
         if genre_ids and film.id not in genre_filter_ids:
+            continue
+        if min_tmdb_rating > 0 and (film.tmdb_rating or 0) < min_tmdb_rating:
             continue
         results.append(film)
 

@@ -142,7 +142,16 @@ def run_recommendation_job(self, job_id: str):
         session.commit()
 
         try:
-            genre_ids = [int(g) for g in job.genre_ids.split(",") if g]
+            # genre_ids field now stores JSON; fall back to old comma-sep format
+            try:
+                params = json.loads(job.genre_ids)
+                genre_ids = params.get("include", [])
+                exclude_genre_ids = params.get("exclude", [])
+                min_tmdb_rating = float(params.get("min_rating", 0.0))
+            except (json.JSONDecodeError, TypeError, AttributeError):
+                genre_ids = [int(g) for g in (job.genre_ids or "").split(",") if g]
+                exclude_genre_ids = []
+                min_tmdb_rating = 0.0
 
             profiles = session.exec(select(UserProfile)).all()
             if not profiles:
@@ -156,7 +165,11 @@ def run_recommendation_job(self, job_id: str):
                 )
 
             usernames = [p.username for p in profiles]
-            results = run_group_recommendations(session, usernames, genre_ids)
+            results = run_group_recommendations(
+                session, usernames, genre_ids,
+                exclude_genre_ids=exclude_genre_ids,
+                min_tmdb_rating=min_tmdb_rating,
+            )
 
             job.status = "complete"
             job.result_json = json.dumps(results)
@@ -209,7 +222,7 @@ def _persist_films(session: Session, profile: UserProfile, films: list[dict]):
 
             _upsert_rating(session, user.id, film.id, entry.get("rating"))
 
-    user.last_scraped = datetime.utcnow()  # type: ignore[attr-defined]
+    user.scraped_at = datetime.utcnow()
     session.add(user)
     session.commit()
     logger.info(f"Persisted {len(films)} films for {profile.username}")

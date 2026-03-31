@@ -10,20 +10,33 @@
 
   <div class="bg-[#16213e] rounded-2xl p-8 shadow-xl space-y-6">
     <div>
-      <label class="block text-sm font-semibold text-gray-300 mb-3">
-        What are you in the mood for? <span class="text-gray-500 font-normal">(pick any)</span>
+      <label class="block text-sm font-semibold text-gray-300 mb-1">
+        What are you in the mood for?
       </label>
+      <p class="text-xs text-gray-500 mb-3">Click once to include&nbsp;✓, again to exclude&nbsp;✕, again to clear.</p>
       <div class="flex flex-wrap gap-2">
         {% for genre in genres %}
-        <div class="genre-chip">
-          <input type="checkbox" id="genre-{{ genre.id }}" value="{{ genre.id }}" class="hidden genre-cb"/>
-          <label for="genre-{{ genre.id }}"
-                 class="cursor-pointer select-none px-4 py-2 rounded-full border border-gray-600
-                        text-sm text-gray-300 hover:border-[#00c030] hover:text-white transition">
-            {{ genre.name }}
-          </label>
-        </div>
+        <button type="button"
+                data-id="{{ genre.id }}" data-name="{{ genre.name }}" data-state="0"
+                onclick="cycleGenre(this)"
+                class="px-4 py-2 rounded-full border border-gray-600 text-sm text-gray-300
+                       hover:border-[#00c030] hover:text-white transition select-none cursor-pointer">
+          {{ genre.name }}
+        </button>
         {% endfor %}
+      </div>
+    </div>
+
+    <div>
+      <div class="flex items-center justify-between mb-2">
+        <label class="text-sm font-semibold text-gray-300">Minimum TMDB Score</label>
+        <span id="score-label" class="text-sm font-bold text-[#00c030]">Any</span>
+      </div>
+      <input type="range" id="min-score" min="0" max="9" step="0.5" value="0"
+             class="w-full accent-[#00c030] cursor-pointer"
+             oninput="updateScore(this.value)"/>
+      <div class="flex justify-between text-xs text-gray-600 mt-1">
+        <span>No minimum</span><span>9.0</span>
       </div>
     </div>
 
@@ -63,9 +76,32 @@
     }
   });
 
+  function cycleGenre(el) {
+    const state = (parseInt(el.dataset.state) + 1) % 3;
+    el.dataset.state = state;
+    const name = el.dataset.name;
+    el.className = 'px-4 py-2 rounded-full border text-sm transition select-none cursor-pointer ' + (
+      state === 1 ? 'bg-[#00c030] border-[#00c030] text-white' :
+      state === 2 ? 'bg-red-700 border-red-600 text-white' :
+                    'border-gray-600 text-gray-300 hover:border-[#00c030] hover:text-white'
+    );
+    el.textContent = state === 1 ? `✓ ${name}` : state === 2 ? `✕ ${name}` : name;
+  }
+
+  function updateScore(val) {
+    document.getElementById('score-label').textContent =
+      parseFloat(val) === 0 ? 'Any' : `${parseFloat(val).toFixed(1)}+`;
+  }
+
   async function getRecommendations() {
-    const genreIds = Array.from(document.querySelectorAll('.genre-cb:checked'))
-                          .map(cb => parseInt(cb.value));
+    const chips = document.querySelectorAll('[data-id][data-state]');
+    const includeGenres = [], excludeGenres = [];
+    chips.forEach(c => {
+      const s = parseInt(c.dataset.state), id = parseInt(c.dataset.id);
+      if (s === 1) includeGenres.push(id);
+      if (s === 2) excludeGenres.push(id);
+    });
+    const minScore = parseFloat(document.getElementById('min-score').value);
 
     document.getElementById('submit-btn').disabled = true;
     document.getElementById('spinner').classList.remove('hidden');
@@ -75,7 +111,11 @@
     const res = await fetch('/api/recommend', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ genre_ids: genreIds }),
+      body: JSON.stringify({
+        genre_ids: includeGenres,
+        exclude_genre_ids: excludeGenres,
+        min_tmdb_rating: minScore,
+      }),
     });
     const data = await res.json();
 
