@@ -124,7 +124,8 @@ The first run embeds every film in your library with an overview (~3,000–4,000
 
 ## Known issues / next session
 
-No known open bugs.
+- **Already-seen films appearing in results** — films watched by a group member occasionally surface in recommendations. Likely a slug/TMDB ID deduplication gap where a film exists under multiple records.
+- **Genre exclude filter not fully respected** — selecting "NOT Animation" (or other exclusions) does not reliably remove all matching films. Animated films have been observed in results when Animation was explicitly excluded.
 
 ## Algorithm improvement ideas
 
