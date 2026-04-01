@@ -98,11 +98,11 @@ def run_group_recommendations(
     candidate_film_ids -= seen_combined
 
     if any(c < settings.cf_cold_start_threshold for c in rated_counts) or not candidate_film_ids:
-        return _affinity_then_cold_start(session, usernames, genre_ids, candidate_film_ids, seen_combined, top_n, min_tmdb_rating)
+        return _affinity_then_cold_start(session, usernames, genre_ids, exclude_genre_ids or [], candidate_film_ids, seen_combined, top_n, min_tmdb_rating)
 
     ratings_flat = _load_all_ratings(session)
     if not ratings_flat:
-        return _affinity_then_cold_start(session, usernames, genre_ids, candidate_film_ids, seen_combined, top_n, min_tmdb_rating)
+        return _affinity_then_cold_start(session, usernames, genre_ids, exclude_genre_ids or [], candidate_film_ids, seen_combined, top_n, min_tmdb_rating)
 
     matrix, all_usernames, film_ids, user_means = build_sparse_matrix(ratings_flat)
 
@@ -143,7 +143,7 @@ def run_group_recommendations(
     if len(results) < top_n:
         already = {r["film_id"] for r in results}
         results += cold_start_recommendations(
-            session, genre_ids, seen_combined | already, top_n - len(results), min_tmdb_rating
+            session, genre_ids, exclude_genre_ids or [], seen_combined | already, top_n - len(results), min_tmdb_rating
         )
     return results
 
@@ -186,16 +186,16 @@ def _run_single(
     candidate_film_ids -= seen_film_ids
 
     if rated_count < settings.cf_cold_start_threshold or not candidate_film_ids:
-        return _affinity_then_cold_start(session, [username], genre_ids, candidate_film_ids, seen_film_ids, top_n, min_tmdb_rating)
+        return _affinity_then_cold_start(session, [username], genre_ids, exclude_genre_ids, candidate_film_ids, seen_film_ids, top_n, min_tmdb_rating)
 
     ratings_flat = _load_all_ratings(session)
     if not ratings_flat:
-        return _affinity_then_cold_start(session, [username], genre_ids, candidate_film_ids, seen_film_ids, top_n, min_tmdb_rating)
+        return _affinity_then_cold_start(session, [username], genre_ids, exclude_genre_ids, candidate_film_ids, seen_film_ids, top_n, min_tmdb_rating)
 
     matrix, usernames, film_ids, user_means = build_sparse_matrix(ratings_flat)
     similar = find_similar_users(username, matrix, usernames, top_k=50)
     if not similar:
-        return _affinity_then_cold_start(session, [username], genre_ids, candidate_film_ids, seen_film_ids, top_n, min_tmdb_rating)
+        return _affinity_then_cold_start(session, [username], genre_ids, exclude_genre_ids, candidate_film_ids, seen_film_ids, top_n, min_tmdb_rating)
 
     scored = score_unseen_films(
         target_username=username,
@@ -216,7 +216,7 @@ def _run_single(
     if len(results) < top_n:
         already = {r["film_id"] for r in results}
         results += cold_start_recommendations(
-            session, genre_ids, seen_film_ids | already, top_n - len(results), min_tmdb_rating
+            session, genre_ids, exclude_genre_ids, seen_film_ids | already, top_n - len(results), min_tmdb_rating
         )
     return results
 
@@ -236,6 +236,7 @@ def _affinity_then_cold_start(
     session: Session,
     usernames: list[str],
     genre_ids: list[int],
+    exclude_genre_ids: list[int],
     candidate_film_ids: set[int],
     seen_film_ids: set[int],
     top_n: int,
@@ -255,7 +256,7 @@ def _affinity_then_cold_start(
     if len(results) < top_n:
         already = {r["film_id"] for r in results}
         results += cold_start_recommendations(
-            session, genre_ids, seen_film_ids | already, top_n - len(results), min_tmdb_rating
+            session, genre_ids, exclude_genre_ids, seen_film_ids | already, top_n - len(results), min_tmdb_rating
         )
     return results
 

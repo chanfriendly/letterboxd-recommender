@@ -618,13 +618,24 @@ def _fetch_and_store_keywords(session: Session, client: httpx.Client, film: Film
             session.add(FilmKeywordLink(film_id=film.id, keyword_id=keyword.id))
 
 
+_TMDB_GENRE_NAMES = {
+    28: "Action", 12: "Adventure", 16: "Animation", 35: "Comedy", 80: "Crime",
+    99: "Documentary", 18: "Drama", 10751: "Family", 14: "Fantasy", 36: "History",
+    27: "Horror", 10402: "Music", 9648: "Mystery", 10749: "Romance",
+    878: "Science Fiction", 53: "Thriller", 10752: "War", 37: "Western",
+}
+
+
 def _apply_genre_ids(session: Session, film: Film, genre_ids: list[int]):
     for gid in genre_ids:
         genre = session.exec(
             select(Genre).where(Genre.tmdb_genre_id == gid)
         ).first()
         if not genre:
-            continue
+            name = _TMDB_GENRE_NAMES.get(gid, f"Genre {gid}")
+            genre = Genre(tmdb_genre_id=gid, name=name)
+            session.add(genre)
+            session.flush()
         if not session.exec(
             select(FilmGenreLink).where(
                 FilmGenreLink.film_id == film.id,

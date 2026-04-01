@@ -10,6 +10,7 @@ from app.models.film import Film, FilmGenreLink, Genre
 def cold_start_recommendations(
     session: Session,
     genre_ids: list[int],
+    exclude_genre_ids: list[int],
     seen_film_ids: set[int],
     top_n: int = 20,
     min_tmdb_rating: float = 0.0,
@@ -29,6 +30,18 @@ def cold_start_recommendations(
         ).all()
         genre_filter_ids = set(film_ids_in_genre)
 
+    excl_film_ids: set[int] = set()
+    if exclude_genre_ids:
+        excl_db_ids = session.exec(
+            select(Genre.id).where(Genre.tmdb_genre_id.in_(exclude_genre_ids))
+        ).all()
+        if excl_db_ids:
+            excl_film_ids = set(session.exec(
+                select(FilmGenreLink.film_id).where(
+                    FilmGenreLink.genre_id.in_(excl_db_ids)
+                )
+            ).all())
+
     query = select(Film).where(Film.tmdb_rating.isnot(None))
     films = session.exec(query).all()
 
@@ -37,6 +50,8 @@ def cold_start_recommendations(
         if film.id in seen_film_ids:
             continue
         if genre_ids and film.id not in genre_filter_ids:
+            continue
+        if film.id in excl_film_ids:
             continue
         if min_tmdb_rating > 0 and (film.tmdb_rating or 0) < min_tmdb_rating:
             continue

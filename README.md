@@ -131,8 +131,7 @@ The first run embeds every film in your library with an overview (~3,000–4,000
 
 ## Known issues / next session
 
-- **Already-seen films appearing in results** — films watched by a group member occasionally surface in recommendations. Likely a slug/TMDB ID deduplication gap where a film exists under multiple records.
-- **Genre exclude filter not fully respected** — selecting "NOT Animation" (or other exclusions) does not reliably remove all matching films. Animated films have been observed in results when Animation was explicitly excluded.
+- **Already-seen films appearing in results** — films watched by a group member occasionally surface in recommendations. Root cause: ~924 films imported from Letterboxd export have unresolvable short-code slugs (e.g. `2DjO`) with no TMDB match. If the same film exists in the recommendation pool under its TMDB ID, the deduplication step can't bridge the two records. Import pipeline fix needed.
 
 ## Algorithm improvement ideas
 
