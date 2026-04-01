@@ -131,7 +131,7 @@ The first run embeds every film in your library with an overview (~3,000–4,000
 
 ## Known issues / next session
 
-- **Already-seen films appearing in results** — films watched by a group member occasionally surface in recommendations. Root cause: ~924 films imported from Letterboxd export have unresolvable short-code slugs (e.g. `2DjO`) with no TMDB match. If the same film exists in the recommendation pool under its TMDB ID, the deduplication step can't bridge the two records. Import pipeline fix needed.
+- **Already-seen films appearing in results (existing installs)** — Letterboxd diary entries sometimes use short-code slugs (e.g. `2DjO`) instead of canonical film slugs. Older versions of the import pipeline stored the short code as the film title, so TMDB lookup failed and these records were left as stubs with no `tmdb_id`. The deduplication step (`_expand_seen_by_tmdb_id`) can't bridge a stub with no TMDB ID to its counterpart in the recommendation pool. **Fix:** the import pipeline now carries the real `Name`/`Year` from the CSV through to TMDB lookup. Re-uploading your Letterboxd export ZIP will resolve existing stubs automatically — the import detects stub records (title == slug) and re-attempts enrichment with the real title from the CSV.
 
 ## Algorithm improvement ideas
 

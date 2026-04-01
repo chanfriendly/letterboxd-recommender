@@ -48,7 +48,7 @@ def process_zip_task(self, profile_id: int, zip_path: str):
 
             entries = parse_letterboxd_zip(zip_bytes)
 
-            # Convert export entries to {slug, rating} using the Letterboxd URI
+            # Convert export entries to {slug, title, year, rating}
             films = []
             for e in entries:
                 lb_uri = e.get("lb_uri", "")
@@ -59,7 +59,12 @@ def process_zip_task(self, profile_id: int, zip_path: str):
                     slug = e["title"].lower().replace(" ", "-")
                     if e.get("year"):
                         slug += f"-{e['year']}"
-                films.append({"slug": slug, "rating": e.get("rating")})
+                films.append({
+                    "slug": slug,
+                    "rating": e.get("rating"),
+                    "title": e.get("title"),
+                    "year": e.get("year"),
+                })
 
             _persist_films(session, profile, films)
             _enrich_with_tmdb(session, {profile.username})
@@ -333,12 +338,38 @@ def _persist_films(session: Session, profile: UserProfile, films: list[dict]):
             ).first()
 
             if not film:
-                film = Film(letterboxd_slug=slug, title=slug)
+                title = entry.get("title") or slug
+                year = entry.get("year")
+                film = Film(letterboxd_slug=slug, title=title, year=year)
                 session.add(film)
                 session.flush()
 
-                # Attempt TMDB lookup now so we at least have basic metadata
+                # Try slug-derived search first (works for readable slugs like
+                # "mulholland-drive-2001"), then fall back to title+year from
+                # the CSV (catches short-code slugs like "2DjO")
                 tmdb_id = _tmdb_search_by_slug(client, slug)
+                if not tmdb_id and entry.get("title"):
+                    tmdb_id = _tmdb_search(client, entry["title"], entry.get("year"))
+                if tmdb_id:
+                    data = _tmdb_get_movie(client, tmdb_id)
+                    if data:
+                        _apply_tmdb_data(session, film, data)
+                session.add(film)
+                session.flush()
+
+            elif film.tmdb_id is None and entry.get("title"):
+                # Stub record from a previous import that used a short-code slug
+                # as the title (e.g. "2DjO").  Now that we have the real title
+                # from the CSV, update it and attempt TMDB resolution.
+                real_title = entry["title"]
+                real_year = entry.get("year")
+                if film.title == film.letterboxd_slug:
+                    film.title = real_title
+                if real_year and not film.year:
+                    film.year = real_year
+                session.add(film)
+                session.flush()
+                tmdb_id = _tmdb_search(client, real_title, real_year)
                 if tmdb_id:
                     data = _tmdb_get_movie(client, tmdb_id)
                     if data:
