@@ -7,6 +7,7 @@ from pydantic import BaseModel
 from sqlmodel import Session, select
 
 from app.models.db import get_session
+from app.models.film import Film, VetoedFilm
 from app.models.job import ScrapeJob
 from app.models.profile import UserProfile
 from app.models.user import LBUser, UserFilmRating
@@ -198,6 +199,45 @@ def create_recommendation_job(
 
     run_recommendation_job.delay(job_id)
     return {"job_id": job_id}
+
+
+class VetoRequest(BaseModel):
+    vetoed_by: str = ""
+
+
+@router.post("/veto/{film_id}")
+def veto_film(film_id: int, body: VetoRequest = VetoRequest(), session: Session = Depends(get_session)):
+    film = session.get(Film, film_id)
+    if not film:
+        raise HTTPException(status_code=404, detail="Film not found")
+    existing = session.exec(select(VetoedFilm).where(VetoedFilm.film_id == film_id)).first()
+    if not existing:
+        session.add(VetoedFilm(film_id=film_id, vetoed_by=body.vetoed_by or None))
+        session.commit()
+    return {"ok": True, "film_id": film_id}
+
+
+@router.delete("/veto/{film_id}")
+def un_veto_film(film_id: int, session: Session = Depends(get_session)):
+    existing = session.exec(select(VetoedFilm).where(VetoedFilm.film_id == film_id)).first()
+    if existing:
+        session.delete(existing)
+        session.commit()
+    return {"ok": True, "film_id": film_id}
+
+
+@router.get("/vetoes")
+def list_vetoes(session: Session = Depends(get_session)):
+    rows = session.exec(select(VetoedFilm)).all()
+    return [
+        {
+            "film_id": v.film_id,
+            "vetoed_by": v.vetoed_by,
+            "vetoed_at": v.vetoed_at.isoformat(),
+            "title": session.get(Film, v.film_id).title if session.get(Film, v.film_id) else None,
+        }
+        for v in rows
+    ]
 
 
 @router.post("/refresh")

@@ -110,9 +110,25 @@ docker exec tailscale tailscale funnel --bg 8020
 
 ## Known issues / next session
 
-- **Movie links** — clicking a film poster opens the wrong Letterboxd URL in some cases (likely films imported via TMDB recommendations that have a synthetic `tmdb-{id}` slug rather than a real Letterboxd slug). Need to fall back to `https://www.themoviedb.org/movie/{tmdb_id}` when the slug is synthetic.
-- **Already-seen films occasionally appearing** — a small number of watched films slip through the seen-exclusion filter. Likely affects films whose Letterboxd slug in the ZIP doesn't match the slug stored from a TMDB-seeded recommendation. Needs a dedup pass keyed on `tmdb_id` rather than just `film.id`.
-- **Limited recommendation results** — result sets are sometimes smaller than expected, especially for niche genre combinations. Investigate whether the candidate pool is being over-filtered before CF scoring, and consider relaxing the cold-start threshold or expanding TMDB recommendation seed depth.
+No known open bugs.
+
+## Algorithm improvements (next session ideas)
+
+The current approach is user-based collaborative filtering: find users with similar rating patterns, then predict scores for unseen films based on what those similar users rated. It works but has real limitations at small scale (1–2 users, sparse overlap). Some directions worth exploring:
+
+### Better CF scoring
+- **Mean-center ratings before similarity** — a 4/5 from someone who rarely gives 4s means more than one from someone who gives 4s constantly. Subtracting each user's mean rating before computing cosine similarity (then adding it back when predicting) would make the similarity metric reflect taste more than rating habits.
+- **Item-based CF** — instead of finding similar *users*, find similar *films* ("people who liked The Godfather also liked Goodfellas"). More stable with a sparse user base because the item-item matrix accumulates signal across all users rather than relying on user-user overlap. scikit-learn supports this with the same cosine_similarity call on the transposed matrix.
+- **SVD / matrix factorization** — decompose the ratings matrix into latent "taste dimensions" (e.g. "gritty realism", "feel-good", "slow burn"). Works well with sparse data and generalizes better than nearest-neighbor CF. scipy.sparse.linalg.svds or surprise library.
+
+### Better group recommendations
+- **Least-misery scoring** — for couples, the bottleneck is the person who'd enjoy it least. A hybrid of `(avg + min) / 2` would rank films that both people would genuinely enjoy over films that one person loves and the other tolerates. Currently we just average, which can surface one person's niche pick.
+- **Genre affinity weighting** — for each user, compute what fraction of their high ratings (≥4) fall into each genre. Boost predicted scores for genres the user historically loves, dampen genres they tend to rate poorly. This personalizes within the CF output.
+
+### Candidate pool
+- **Expand seed depth dynamically** — if the candidate pool after genre filtering is below a threshold (say 40 films), automatically increase TMDB recommendation pages rather than accepting thin results.
+- **Letterboxd Popular lists as signals** — Letterboxd publishes public lists (e.g. "Top 250", genre charts). Seeding candidates from these would surface critically loved films that TMDB recommendations miss.
+- **Diversity pass** — after scoring, run a re-ranking step that penalizes films from the same director, franchise, or production company appearing back-to-back. Avoids returning five Christopher Nolan films in a row.
 
 ## License
 

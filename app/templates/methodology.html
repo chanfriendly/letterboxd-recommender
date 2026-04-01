@@ -1,0 +1,156 @@
+{% extends "base.html" %}
+{% block title %}How It Works — Letterboxd Recommender{% endblock %}
+
+{% block content %}
+<div class="max-w-3xl mx-auto space-y-12">
+
+  <div>
+    <h1 class="text-3xl font-bold mb-2">How recommendations work</h1>
+    <p class="text-gray-400">
+      Every score you see is produced by one of three methods, applied in order.
+      The app always uses the most personalised signal it can, and falls back
+      only when there isn't enough data.
+    </p>
+  </div>
+
+  <!-- Scoring tiers -->
+  <section class="space-y-6">
+    <h2 class="text-xl font-semibold border-b border-gray-700 pb-2">Scoring tiers</h2>
+
+    <div class="bg-[#16213e] rounded-xl p-6 space-y-2">
+      <div class="flex items-center gap-3">
+        <span class="text-[#00c030] font-bold text-lg">1</span>
+        <h3 class="font-semibold">Collaborative filtering</h3>
+        <span class="ml-auto text-xs text-gray-500">most personalised</span>
+      </div>
+      <p class="text-gray-400 text-sm">
+        Finds users across the database whose ratings overlap with yours, measures
+        how similar your tastes are (cosine similarity on a sparse ratings matrix),
+        then computes a weighted average of what those users rated — giving more
+        weight to people whose overall taste aligns more closely with yours. The
+        result is a predicted star rating on the same 0–5 scale as Letterboxd.
+      </p>
+      <p class="text-gray-500 text-xs mt-1">
+        Requires at least {{ cf_threshold }} rated films per person and meaningful overlap with other users' histories.
+        When those conditions aren't met, the app moves to tier 2.
+      </p>
+    </div>
+
+    <div class="bg-[#16213e] rounded-xl p-6 space-y-2">
+      <div class="flex items-center gap-3">
+        <span class="text-[#00c030] font-bold text-lg">2</span>
+        <h3 class="font-semibold">Compatibility score <span class="text-[#00c030] text-xs font-normal ml-1">(genre affinity)</span></h3>
+        <span class="ml-auto text-xs text-gray-500">personalised</span>
+      </div>
+      <p class="text-gray-400 text-sm">
+        Looks at your entire watch history and computes your average rating for
+        each genre. A candidate film is then scored by averaging the affinities
+        for its genres — so a film tagged Thriller &amp; Crime will score higher
+        for someone who consistently rates those genres 4+ than for someone who
+        avoids them. For a group, each member's affinity score is averaged.
+      </p>
+      <p class="text-gray-500 text-xs mt-1">
+        This is the score labelled <span class="text-[#00c030]">Match</span> when collaborative filtering can't fire.
+        It only needs your own history — no other users required.
+      </p>
+    </div>
+
+    <div class="bg-[#16213e] rounded-xl p-6 space-y-2">
+      <div class="flex items-center gap-3">
+        <span class="text-[#00c030] font-bold text-lg">3</span>
+        <h3 class="font-semibold">TMDB quality signal</h3>
+        <span class="ml-auto text-xs text-gray-500">least personalised</span>
+      </div>
+      <p class="text-gray-400 text-sm">
+        When neither collaborative filtering nor affinity scoring can produce a
+        result (e.g. the film has no genre data, or the user's history is brand
+        new), the app falls back to TMDB's average audience rating. This is shown
+        as <span class="text-[#00c030]">TMDB: X.X</span> rather than Match to be
+        transparent that it's not personalised.
+      </p>
+    </div>
+  </section>
+
+  <!-- Group scoring -->
+  <section class="space-y-4">
+    <h2 class="text-xl font-semibold border-b border-gray-700 pb-2">Group scoring</h2>
+    <p class="text-gray-400 text-sm">
+      When multiple profiles are active, each candidate film is scored independently
+      for each person, then the scores are averaged across the group. Films that
+      both people received a score for are ranked first — meaning a film that works
+      well for everyone surfaces above one that only one person would clearly enjoy.
+      Within that, higher average scores win.
+    </p>
+    <p class="text-gray-400 text-sm">
+      Films watched by <em>anyone</em> in the group (rated or unrated) are always
+      excluded, so you'll never see something either of you has already seen.
+    </p>
+  </section>
+
+  <!-- Candidate pool -->
+  <section class="space-y-4">
+    <h2 class="text-xl font-semibold border-b border-gray-700 pb-2">Where candidates come from</h2>
+    <p class="text-gray-400 text-sm">
+      The recommendation pool is built from two sources:
+    </p>
+    <ul class="text-gray-400 text-sm list-disc list-inside space-y-2 ml-2">
+      <li>
+        <span class="text-white font-medium">Your imported history</span> — every
+        film in your Letterboxd export that the app could match to a TMDB record.
+      </li>
+      <li>
+        <span class="text-white font-medium">TMDB recommendations</span> — for
+        every film you've rated 3.5 stars or above, the app fetches TMDB's
+        "similar films" list (3 pages, ~60 candidates per seed). These expand
+        the pool beyond what you've already encountered on Letterboxd.
+      </li>
+    </ul>
+    <p class="text-gray-400 text-sm">
+      The pool is refreshed automatically every 6 hours via each profile's public
+      Letterboxd RSS feed, picking up new diary entries without any manual action.
+    </p>
+  </section>
+
+  <!-- Veto -->
+  <section class="space-y-4">
+    <h2 class="text-xl font-semibold border-b border-gray-700 pb-2">Vetoes</h2>
+    <p class="text-gray-400 text-sm">
+      Hovering over any recommended film reveals a <span class="text-white font-medium">✕</span>
+      button. Clicking it vetoes that film — it will never appear in recommendations
+      again, regardless of how highly it scores. Vetoes apply to the whole group.
+      You have a 6-second window to undo a veto immediately after clicking.
+    </p>
+  </section>
+
+  <!-- Live taste profile -->
+  {% if user_affinities %}
+  <section class="space-y-6">
+    <h2 class="text-xl font-semibold border-b border-gray-700 pb-2">Your taste profile <span class="text-gray-500 font-normal text-sm">(live from your history)</span></h2>
+    <p class="text-gray-400 text-sm">
+      These are the genre affinities the app is currently using for compatibility
+      scoring — your average Letterboxd rating per genre, across all your rated films.
+    </p>
+    <div class="grid grid-cols-1 sm:grid-cols-2 gap-6">
+      {% for user in user_affinities %}
+      <div class="bg-[#16213e] rounded-xl p-5">
+        <h3 class="font-semibold mb-4">{{ user.display_name }}</h3>
+        <div class="space-y-2">
+          {% for g in user.genres %}
+          <div class="flex items-center gap-2">
+            <span class="text-gray-300 text-sm w-36 truncate">{{ g.name }}</span>
+            <div class="flex-1 bg-gray-700 rounded-full h-2">
+              <div class="bg-[#00c030] h-2 rounded-full"
+                   style="width: {{ ((g.avg_rating / 5) * 100) | round | int }}%"></div>
+            </div>
+            <span class="text-[#00c030] text-xs w-8 text-right">{{ g.avg_rating }}</span>
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+  </section>
+  {% endif %}
+
+</div>
+{% endblock %}

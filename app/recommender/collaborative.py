@@ -81,7 +81,8 @@ def score_unseen_films(
     user_idx = {u: i for i, u in enumerate(usernames)}
     film_idx = {f: i for i, f in enumerate(film_ids)}
 
-    scores: dict[int, list[float]] = {}
+    # Track (weighted_sum, sim_sum) per film for proper weighted average
+    scores: dict[int, tuple[float, float]] = {}
     for username, sim_score in similar_users:
         if username not in user_idx:
             continue
@@ -91,11 +92,14 @@ def score_unseen_films(
             fid = film_ids[col]
             if fid in seen_film_ids or fid not in candidate_film_ids:
                 continue
-            rating = row[0, col] * sim_score
-            scores.setdefault(fid, []).append(rating)
+            rating = float(row[0, col])
+            w_sum, s_sum = scores.get(fid, (0.0, 0.0))
+            scores[fid] = (w_sum + rating * sim_score, s_sum + sim_score)
 
+    # Divide by sum of similarities to keep predicted score on 0–5 scale
     results = [
-        (fid, float(np.mean(weighted_ratings)))
-        for fid, weighted_ratings in scores.items()
+        (fid, w_sum / s_sum)
+        for fid, (w_sum, s_sum) in scores.items()
+        if s_sum > 0
     ]
     return sorted(results, key=lambda x: x[1], reverse=True)

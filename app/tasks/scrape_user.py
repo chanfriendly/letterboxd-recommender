@@ -363,7 +363,7 @@ def _tmdb_get_movie(client: httpx.Client, tmdb_id: int) -> dict | None:
 
 
 def _tmdb_get_recommendations(
-    client: httpx.Client, tmdb_id: int, pages: int = 2
+    client: httpx.Client, tmdb_id: int, pages: int = 3
 ) -> list[dict]:
     results = []
     for page in range(1, pages + 1):

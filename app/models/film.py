@@ -1,4 +1,5 @@
 from typing import Optional, List
+from datetime import datetime
 from sqlmodel import SQLModel, Field, Relationship
 
 
@@ -28,3 +29,11 @@ class Film(SQLModel, table=True):
 
     genres: List[Genre] = Relationship(back_populates="films", link_model=FilmGenreLink)
     ratings: List["UserFilmRating"] = Relationship(back_populates="film")
+
+
+class VetoedFilm(SQLModel, table=True):
+    """Films the group has permanently excluded from recommendations."""
+    id: Optional[int] = Field(default=None, primary_key=True)
+    film_id: int = Field(foreign_key="film.id", index=True, unique=True)
+    vetoed_by: Optional[str] = None  # username of whoever hit veto, for display
+    vetoed_at: datetime = Field(default_factory=datetime.utcnow)

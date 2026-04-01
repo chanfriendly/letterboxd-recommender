@@ -161,31 +161,40 @@
     }
 
     const cards = films.map(f => `
-      <a href="${f.letterboxd_url}" target="_blank" rel="noopener"
-         class="poster-card group relative bg-[#16213e] rounded-xl overflow-hidden
-                shadow-lg hover:scale-105 transition-transform duration-200 block">
-        ${f.poster_url
-          ? `<img src="${f.poster_url}" alt="${esc(f.title)}" class="w-full aspect-[2/3] object-cover"/>`
-          : `<div class="w-full aspect-[2/3] bg-[#0f3460] flex items-center justify-center
-                        text-gray-500 text-sm p-4 text-center">${esc(f.title)}</div>`
-        }
-        <div class="poster-overlay absolute inset-0 bg-black/75 opacity-0 transition-opacity
-                    flex flex-col justify-end p-4">
-          <p class="font-bold text-white text-sm leading-tight">${esc(f.title)}</p>
-          ${f.year ? `<p class="text-gray-300 text-xs mt-1">${f.year}</p>` : ''}
-          ${f.predicted_score != null
-            ? `<p class="text-[#00c030] text-xs mt-1">Match: ${f.predicted_score.toFixed(1)}/5</p>`
-            : f.tmdb_rating
-            ? `<p class="text-[#00c030] text-xs mt-1">TMDB: ${f.tmdb_rating.toFixed(1)}</p>`
-            : ''
+      <div class="poster-card group relative bg-[#16213e] rounded-xl overflow-hidden
+                  shadow-lg hover:scale-105 transition-transform duration-200"
+           data-film-id="${f.film_id}" id="card-${f.film_id}">
+        <a href="${f.letterboxd_url}" target="_blank" rel="noopener" class="block">
+          ${f.poster_url
+            ? `<img src="${f.poster_url}" alt="${esc(f.title)}" class="w-full aspect-[2/3] object-cover"/>`
+            : `<div class="w-full aspect-[2/3] bg-[#0f3460] flex items-center justify-center
+                          text-gray-500 text-sm p-4 text-center">${esc(f.title)}</div>`
           }
-          ${f.overview ? `<p class="text-gray-400 text-xs mt-2 line-clamp-3">${esc(f.overview)}</p>` : ''}
-        </div>
+          <div class="poster-overlay absolute inset-0 bg-black/75 opacity-0 transition-opacity
+                      flex flex-col justify-end p-4">
+            <p class="font-bold text-white text-sm leading-tight">${esc(f.title)}</p>
+            ${f.year ? `<p class="text-gray-300 text-xs mt-1">${f.year}</p>` : ''}
+            ${f.predicted_score != null
+              ? `<p class="text-[#00c030] text-xs mt-1">Match: ${f.predicted_score.toFixed(1)}/5</p>`
+              : f.tmdb_rating
+              ? `<p class="text-[#00c030] text-xs mt-1">TMDB: ${f.tmdb_rating.toFixed(1)}</p>`
+              : ''
+            }
+            ${f.overview ? `<p class="text-gray-400 text-xs mt-2 line-clamp-3">${esc(f.overview)}</p>` : ''}
+          </div>
+        </a>
+        <button onclick="vetoFilm(${f.film_id}, '${esc(f.title)}')"
+                title="Veto — never recommend this again"
+                class="absolute top-2 right-2 z-10 opacity-0 group-hover:opacity-100 transition-opacity
+                       bg-red-700/80 hover:bg-red-600 text-white rounded-full w-7 h-7
+                       flex items-center justify-center text-xs font-bold leading-none">
+          ✕
+        </button>
         <div class="p-3">
           <p class="font-semibold text-sm truncate">${esc(f.title)}</p>
           <p class="text-gray-400 text-xs">${f.year || ''}</p>
         </div>
-      </a>
+      </div>
     `).join('');
 
     area.innerHTML = `
@@ -210,6 +219,55 @@
   function esc(str) {
     if (!str) return '';
     return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+
+  let vetoUndoTimer = null;
+
+  async function vetoFilm(filmId, title) {
+    const card = document.getElementById('card-' + filmId);
+    if (!card) return;
+
+    // Hide the card immediately
+    card.style.transition = 'opacity 0.2s';
+    card.style.opacity = '0';
+    setTimeout(() => card.remove(), 200);
+
+    // Call the API
+    await fetch('/api/veto/' + filmId, { method: 'POST' });
+
+    // Show undo toast
+    showVetoToast(filmId, title);
+  }
+
+  function showVetoToast(filmId, title) {
+    clearTimeout(vetoUndoTimer);
+    const existing = document.getElementById('veto-toast');
+    if (existing) existing.remove();
+
+    const toast = document.createElement('div');
+    toast.id = 'veto-toast';
+    toast.className = 'fixed bottom-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-3 ' +
+      'bg-gray-800 border border-gray-600 text-sm text-white rounded-xl px-5 py-3 shadow-2xl';
+    toast.innerHTML =
+      '<span class="text-gray-300"><span class="font-semibold text-white">' + esc(title) + '</span> vetoed</span>' +
+      '<button onclick="unVetoFilm(' + filmId + ')" ' +
+        'class="ml-2 text-[#00c030] hover:text-green-300 font-semibold transition">Undo</button>';
+    document.body.appendChild(toast);
+
+    vetoUndoTimer = setTimeout(() => toast.remove(), 6000);
+  }
+
+  async function unVetoFilm(filmId) {
+    clearTimeout(vetoUndoTimer);
+    const toast = document.getElementById('veto-toast');
+    if (toast) toast.remove();
+    await fetch('/api/veto/' + filmId, { method: 'DELETE' });
+    const confirm = document.createElement('div');
+    confirm.className = 'fixed bottom-6 left-1/2 -translate-x-1/2 z-50 ' +
+      'bg-gray-800 border border-gray-600 text-sm text-gray-300 rounded-xl px-5 py-3 shadow-2xl';
+    confirm.textContent = 'Veto undone — regenerate to see it again';
+    document.body.appendChild(confirm);
+    setTimeout(() => confirm.remove(), 3500);
   }
 </script>
 {% endblock %}

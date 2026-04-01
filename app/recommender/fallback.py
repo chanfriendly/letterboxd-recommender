@@ -55,5 +55,9 @@ def _film_to_dict(film: Film, score: float | None) -> dict:
         "overview": film.overview,
         "tmdb_rating": film.tmdb_rating,
         "predicted_score": score,
-        "letterboxd_url": f"https://letterboxd.com/film/{film.letterboxd_slug}/",
+        "letterboxd_url": (
+            f"https://www.themoviedb.org/movie/{film.tmdb_id}"
+            if film.letterboxd_slug.startswith("tmdb-")
+            else f"https://letterboxd.com/film/{film.letterboxd_slug}/"
+        ),
     }

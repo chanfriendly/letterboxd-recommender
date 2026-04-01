@@ -1,6 +1,14 @@
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
+from sqlmodel import Session, select
+
+from app.config import settings
+from app.models.db import get_session
+from app.models.profile import UserProfile
+from app.models.user import LBUser
+from app.recommender.affinity import build_genre_affinity
+from app.models.film import Genre
 
 router = APIRouter()
 templates = Jinja2Templates(directory="app/templates")
@@ -37,3 +45,37 @@ async def index(request: Request):
 @router.get("/setup", response_class=HTMLResponse)
 async def setup(request: Request):
     return templates.TemplateResponse("setup.html", {"request": request})
+
+
+@router.get("/methodology", response_class=HTMLResponse)
+async def methodology(request: Request, session: Session = Depends(get_session)):
+    profiles = session.exec(select(UserProfile).order_by(UserProfile.id)).all()
+
+    # Build live genre affinity data per user
+    user_affinities = []
+    for profile in profiles:
+        user = session.exec(select(LBUser).where(LBUser.username == profile.username)).first()
+        if not user:
+            continue
+        affinity = build_genre_affinity(session, user.id)
+        if not affinity:
+            continue
+        # Resolve genre_id → genre name and sort by avg rating desc
+        genre_rows = []
+        for genre_id, avg_rating in sorted(affinity.items(), key=lambda x: x[1], reverse=True):
+            genre = session.get(Genre, genre_id)
+            if genre:
+                genre_rows.append({"name": genre.name, "avg_rating": round(avg_rating, 2)})
+        user_affinities.append({
+            "display_name": profile.display_name or profile.username,
+            "genres": genre_rows[:10],  # top 10
+        })
+
+    return templates.TemplateResponse(
+        "methodology.html",
+        {
+            "request": request,
+            "user_affinities": user_affinities,
+            "cf_threshold": settings.cf_cold_start_threshold,
+        },
+    )

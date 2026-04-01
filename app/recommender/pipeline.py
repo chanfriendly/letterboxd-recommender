@@ -4,8 +4,34 @@ Recommendation pipeline — single-user and N-user group modes.
 
 from sqlmodel import Session, select
 from app.config import settings
-from app.models.film import Film
+from app.models.film import Film, VetoedFilm
 from app.models.user import LBUser, UserFilmRating
+
+
+def _load_vetoed_film_ids(session: Session) -> set[int]:
+    return {v.film_id for v in session.exec(select(VetoedFilm)).all()}
+
+
+def _expand_seen_by_tmdb_id(session: Session, seen_film_ids: set[int]) -> set[int]:
+    """
+    Expand a set of seen film PKs to include all films sharing the same tmdb_id.
+
+    Prevents synthetic tmdb-{id} duplicates of already-watched films from
+    appearing in recommendations when the original slug-based film was seen.
+    """
+    if not seen_film_ids:
+        return seen_film_ids
+    seen_films = session.exec(
+        select(Film).where(Film.id.in_(seen_film_ids))
+    ).all()
+    tmdb_ids = {f.tmdb_id for f in seen_films if f.tmdb_id is not None}
+    if not tmdb_ids:
+        return seen_film_ids
+    duplicates = session.exec(
+        select(Film.id).where(Film.tmdb_id.in_(tmdb_ids))
+    ).all()
+    return seen_film_ids | set(duplicates)
+from app.recommender.affinity import score_candidates_by_affinity
 from app.recommender.collaborative import (
     build_sparse_matrix,
     find_similar_users,
@@ -55,7 +81,8 @@ def run_group_recommendations(
         }
         seen_per_user.append(seen)
 
-    seen_combined = set().union(*seen_per_user)
+    seen_combined = _expand_seen_by_tmdb_id(session, set().union(*seen_per_user))
+    seen_combined |= _load_vetoed_film_ids(session)
 
     rated_counts = [
         sum(1 for r in session.exec(
@@ -66,17 +93,15 @@ def run_group_recommendations(
         for u in users
     ]
 
-    if any(c < settings.cf_cold_start_threshold for c in rated_counts):
-        return cold_start_recommendations(session, genre_ids, seen_combined, top_n, min_tmdb_rating)
-
     candidate_film_ids = get_films_by_genres(session, genre_ids, exclude_genre_ids)
     candidate_film_ids -= seen_combined
-    if not candidate_film_ids:
-        return cold_start_recommendations(session, genre_ids, seen_combined, top_n, min_tmdb_rating)
+
+    if any(c < settings.cf_cold_start_threshold for c in rated_counts) or not candidate_film_ids:
+        return _affinity_then_cold_start(session, usernames, genre_ids, candidate_film_ids, seen_combined, top_n, min_tmdb_rating)
 
     ratings_flat = _load_all_ratings(session)
     if not ratings_flat:
-        return cold_start_recommendations(session, genre_ids, seen_combined, top_n)
+        return _affinity_then_cold_start(session, usernames, genre_ids, candidate_film_ids, seen_combined, top_n, min_tmdb_rating)
 
     matrix, all_usernames, film_ids = build_sparse_matrix(ratings_flat)
 
@@ -95,20 +120,30 @@ def run_group_recommendations(
         )
         per_user_scores.append(dict(scored))
 
-    # Combine: films scored by all members get full average;
-    # films scored by only some get proportionally less weight
+    # Combine: prefer films with coverage across all members, then by average score.
+    # Score stays on the 0–5 scale; coverage is used only for ranking priority.
     all_candidates = set().union(*per_user_scores)
-    combined: list[tuple[int, float]] = []
+    combined: list[tuple[int, float, int]] = []  # (film_id, avg_score, n_scored)
     n = len(users)
     for fid in all_candidates:
-        scores = [s[fid] for s in per_user_scores if fid in s]
-        # Weight by fraction of members who have a score for this film
-        weight = len(scores) / n
-        avg = sum(scores) / len(scores)
-        combined.append((fid, avg * weight))
+        member_scores = [s[fid] for s in per_user_scores if fid in s]
+        avg = sum(member_scores) / len(member_scores)
+        combined.append((fid, avg, len(member_scores)))
 
-    combined.sort(key=lambda x: x[1], reverse=True)
-    return _enrich(session, combined[:top_n], min_tmdb_rating)
+    # Primary sort: number of members with a score (desc); secondary: avg score (desc)
+    combined.sort(key=lambda x: (x[2], x[1]), reverse=True)
+    results = _enrich(session, [(fid, avg) for fid, avg, _ in combined[:top_n]], min_tmdb_rating)
+    if len(results) < top_n:
+        already = {r["film_id"] for r in results}
+        remaining = candidate_film_ids - seen_combined - already
+        affinity_scored = score_candidates_by_affinity(session, usernames, remaining)
+        results += _enrich(session, affinity_scored[:top_n - len(results)], min_tmdb_rating)
+    if len(results) < top_n:
+        already = {r["film_id"] for r in results}
+        results += cold_start_recommendations(
+            session, genre_ids, seen_combined | already, top_n - len(results), min_tmdb_rating
+        )
+    return results
 
 
 def run_recommendations(
@@ -132,11 +167,12 @@ def _run_single(
     if not user:
         return []
 
-    seen_film_ids = {
+    seen_film_ids = _expand_seen_by_tmdb_id(session, {
         r.film_id for r in session.exec(
             select(UserFilmRating).where(UserFilmRating.user_id == user.id)
         ).all()
-    }
+    })
+    seen_film_ids |= _load_vetoed_film_ids(session)
 
     rated_count = sum(1 for r in session.exec(
         select(UserFilmRating).where(
@@ -144,22 +180,20 @@ def _run_single(
         )
     ).all())
 
-    if rated_count < settings.cf_cold_start_threshold:
-        return cold_start_recommendations(session, genre_ids, seen_film_ids, top_n, min_tmdb_rating)
-
     candidate_film_ids = get_films_by_genres(session, genre_ids, exclude_genre_ids)
     candidate_film_ids -= seen_film_ids
-    if not candidate_film_ids:
-        return cold_start_recommendations(session, genre_ids, seen_film_ids, top_n, min_tmdb_rating)
+
+    if rated_count < settings.cf_cold_start_threshold or not candidate_film_ids:
+        return _affinity_then_cold_start(session, [username], genre_ids, candidate_film_ids, seen_film_ids, top_n, min_tmdb_rating)
 
     ratings_flat = _load_all_ratings(session)
     if not ratings_flat:
-        return cold_start_recommendations(session, genre_ids, seen_film_ids, top_n)
+        return _affinity_then_cold_start(session, [username], genre_ids, candidate_film_ids, seen_film_ids, top_n, min_tmdb_rating)
 
     matrix, usernames, film_ids = build_sparse_matrix(ratings_flat)
     similar = find_similar_users(username, matrix, usernames, top_k=50)
     if not similar:
-        return cold_start_recommendations(session, genre_ids, seen_film_ids, top_n)
+        return _affinity_then_cold_start(session, [username], genre_ids, candidate_film_ids, seen_film_ids, top_n, min_tmdb_rating)
 
     scored = score_unseen_films(
         target_username=username,
@@ -170,7 +204,18 @@ def _run_single(
         seen_film_ids=seen_film_ids,
         candidate_film_ids=candidate_film_ids,
     )
-    return _enrich(session, scored[:top_n], min_tmdb_rating)
+    results = _enrich(session, scored[:top_n], min_tmdb_rating)
+    if len(results) < top_n:
+        already = {r["film_id"] for r in results}
+        remaining = candidate_film_ids - seen_film_ids - already
+        affinity_scored = score_candidates_by_affinity(session, [username], remaining)
+        results += _enrich(session, affinity_scored[:top_n - len(results)], min_tmdb_rating)
+    if len(results) < top_n:
+        already = {r["film_id"] for r in results}
+        results += cold_start_recommendations(
+            session, genre_ids, seen_film_ids | already, top_n - len(results), min_tmdb_rating
+        )
+    return results
 
 
 def _load_all_ratings(session: Session) -> list[dict]:
@@ -180,8 +225,30 @@ def _load_all_ratings(session: Session) -> list[dict]:
     return [
         {"username": u.username, "film_id": r.film_id, "rating": r.rating}
         for r, u in all_raw
-        if r.rating is not None
+        if r.rating is not None and not u.is_audience_user
     ]
+
+
+def _affinity_then_cold_start(
+    session: Session,
+    usernames: list[str],
+    genre_ids: list[int],
+    candidate_film_ids: set[int],
+    seen_film_ids: set[int],
+    top_n: int,
+    min_tmdb_rating: float,
+) -> list[dict]:
+    """Affinity-scored results, padded with cold-start if needed."""
+    results: list[dict] = []
+    if candidate_film_ids:
+        affinity_scored = score_candidates_by_affinity(session, usernames, candidate_film_ids)
+        results = _enrich(session, affinity_scored[:top_n], min_tmdb_rating)
+    if len(results) < top_n:
+        already = {r["film_id"] for r in results}
+        results += cold_start_recommendations(
+            session, genre_ids, seen_film_ids | already, top_n - len(results), min_tmdb_rating
+        )
+    return results
 
 
 def _enrich(
