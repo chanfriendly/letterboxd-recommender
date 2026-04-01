@@ -32,6 +32,7 @@ def _expand_seen_by_tmdb_id(session: Session, seen_film_ids: set[int]) -> set[in
     ).all()
     return seen_film_ids | set(duplicates)
 from app.recommender.affinity import score_candidates_by_affinity
+from app.recommender.semantic import score_candidates_by_embedding, semantic_matching_enabled
 from app.recommender.collaborative import (
     build_sparse_matrix,
     find_similar_users,
@@ -137,8 +138,8 @@ def run_group_recommendations(
     if len(results) < top_n:
         already = {r["film_id"] for r in results}
         remaining = candidate_film_ids - seen_combined - already
-        affinity_scored = score_candidates_by_affinity(session, usernames, remaining)
-        results += _enrich(session, affinity_scored[:top_n - len(results)], min_tmdb_rating)
+        blended = _blend_affinity_and_semantic(session, usernames, remaining, user_means)
+        results += _enrich(session, blended[:top_n - len(results)], min_tmdb_rating)
     if len(results) < top_n:
         already = {r["film_id"] for r in results}
         results += cold_start_recommendations(
@@ -210,8 +211,8 @@ def _run_single(
     if len(results) < top_n:
         already = {r["film_id"] for r in results}
         remaining = candidate_film_ids - seen_film_ids - already
-        affinity_scored = score_candidates_by_affinity(session, [username], remaining)
-        results += _enrich(session, affinity_scored[:top_n - len(results)], min_tmdb_rating)
+        blended = _blend_affinity_and_semantic(session, [username], remaining, user_means)
+        results += _enrich(session, blended[:top_n - len(results)], min_tmdb_rating)
     if len(results) < top_n:
         already = {r["film_id"] for r in results}
         results += cold_start_recommendations(
@@ -239,18 +240,62 @@ def _affinity_then_cold_start(
     seen_film_ids: set[int],
     top_n: int,
     min_tmdb_rating: float,
+    user_means: dict[str, float] | None = None,
 ) -> list[dict]:
-    """Affinity-scored results, padded with cold-start if needed."""
+    """
+    Score candidates by affinity (genre+keyword), optionally blended with
+    semantic similarity when embeddings are ready, then pad with cold-start.
+    """
     results: list[dict] = []
     if candidate_film_ids:
-        affinity_scored = score_candidates_by_affinity(session, usernames, candidate_film_ids)
-        results = _enrich(session, affinity_scored[:top_n], min_tmdb_rating)
+        scored = _blend_affinity_and_semantic(
+            session, usernames, candidate_film_ids, user_means or {}
+        )
+        results = _enrich(session, scored[:top_n], min_tmdb_rating)
     if len(results) < top_n:
         already = {r["film_id"] for r in results}
         results += cold_start_recommendations(
             session, genre_ids, seen_film_ids | already, top_n - len(results), min_tmdb_rating
         )
     return results
+
+
+def _blend_affinity_and_semantic(
+    session: Session,
+    usernames: list[str],
+    candidate_film_ids: set[int],
+    user_means: dict[str, float],
+) -> list[tuple[int, float]]:
+    """
+    Blend affinity and semantic scores into a single ranked list.
+
+    When semantic matching is enabled:
+      final = 0.45 * affinity_score + 0.55 * semantic_score
+    When only affinity is available:
+      final = affinity_score
+    Films with no affinity or semantic score fall back to their TMDB rating.
+    """
+    affinity_scores = dict(score_candidates_by_affinity(session, usernames, candidate_film_ids))
+
+    if not semantic_matching_enabled(session):
+        return sorted(affinity_scores.items(), key=lambda x: x[1], reverse=True)
+
+    semantic_scores = dict(
+        score_candidates_by_embedding(session, usernames, candidate_film_ids, user_means)
+    )
+
+    blended: list[tuple[int, float]] = []
+    for fid in candidate_film_ids:
+        a = affinity_scores.get(fid)
+        s = semantic_scores.get(fid)
+        if a is not None and s is not None:
+            blended.append((fid, 0.45 * a + 0.55 * s))
+        elif a is not None:
+            blended.append((fid, a))
+        elif s is not None:
+            blended.append((fid, s))
+
+    return sorted(blended, key=lambda x: x[1], reverse=True)
 
 
 def _enrich(
