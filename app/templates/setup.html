@@ -39,24 +39,91 @@
     Only the username is stored after import. The ZIP file is deleted immediately after processing.
   </p>
 
-  <!-- Semantic matching toggle -->
+  <!-- Semantic matching section -->
   <div class="mt-10 border-t border-gray-700 pt-8">
     <h2 class="text-lg font-semibold mb-1">Deep Semantic Matching</h2>
     <p class="text-gray-400 text-sm mb-4">
-      Uses a local AI model (<span class="text-white">all-MiniLM-L6-v2</span>) to read the plot
-      description of every film in your library and understand thematic meaning — not just genre
-      labels. Once enabled, the app can follow taste throughlines across genres: if you love films
-      about moral ambiguity under pressure, it will find others with that same undercurrent even
-      if they're tagged differently. Runs entirely on your server; no data leaves your machine.
+      Uses an AI embedding model to read each film's plot and understand thematic meaning — not
+      just genre labels. Finds taste throughlines across genres: if you love films about moral
+      ambiguity under pressure, it surfaces others with that same undercurrent even if they're
+      tagged differently. New films are embedded automatically after each sync.
     </p>
-    <p class="text-gray-500 text-xs mb-5">
-      Requires <code class="bg-gray-800 px-1 rounded">sentence-transformers</code> to be installed
-      in the container (<code class="bg-gray-800 px-1 rounded">pip install sentence-transformers</code>).
-      The first run embeds all films in your library — a few minutes depending on library size.
-      New films are embedded automatically after that.
-    </p>
+
+    <!-- Embedding provider config -->
+    <div class="bg-[#16213e] rounded-xl p-5 mb-4">
+      <p class="text-sm font-semibold text-white mb-3">Embedding Provider</p>
+      <div class="flex gap-3 mb-4">
+        <button onclick="setProvider('local')" id="btn-local"
+                class="px-4 py-2 rounded-lg text-sm font-medium transition border">
+          Local Model
+        </button>
+        <button onclick="setProvider('remote')" id="btn-remote"
+                class="px-4 py-2 rounded-lg text-sm font-medium transition border">
+          Remote API
+        </button>
+      </div>
+
+      <!-- Local description -->
+      <div id="local-desc" class="text-gray-400 text-sm hidden">
+        Downloads <span class="text-white">all-MiniLM-L6-v2</span> (~80 MB) into the container
+        on first use. No configuration needed. Runs on your server's CPU — slower on weak hardware
+        but completely private.
+      </div>
+
+      <!-- Remote fields -->
+      <div id="remote-fields" class="space-y-3 hidden">
+        <p class="text-gray-400 text-sm">
+          Point to any OpenAI-compatible embeddings API — LM Studio, Ollama, or OpenAI.
+          For LM Studio: start the server, load an embedding model, and paste the URL below.
+        </p>
+        <div>
+          <label class="block text-xs text-gray-500 mb-1">API Base URL</label>
+          <input id="remote-url" type="text" placeholder="http://192.168.1.x:1234/v1"
+                 class="w-full bg-[#0f3460] border border-gray-600 rounded-lg px-3 py-2 text-sm text-white
+                        placeholder-gray-600 focus:outline-none focus:border-[#00c030] transition"/>
+        </div>
+        <div>
+          <label class="block text-xs text-gray-500 mb-1">Model Name</label>
+          <input id="remote-model" type="text" placeholder="nomic-embed-text-v1.5"
+                 class="w-full bg-[#0f3460] border border-gray-600 rounded-lg px-3 py-2 text-sm text-white
+                        placeholder-gray-600 focus:outline-none focus:border-[#00c030] transition"/>
+          <p class="text-gray-600 text-xs mt-1">Paste the model name exactly as shown in LM Studio / Ollama.</p>
+        </div>
+        <div>
+          <label class="block text-xs text-gray-500 mb-1">API Key <span class="text-gray-600">(optional — LM Studio doesn't require one)</span></label>
+          <input id="remote-key" type="text" placeholder="lm-studio"
+                 class="w-full bg-[#0f3460] border border-gray-600 rounded-lg px-3 py-2 text-sm text-white
+                        placeholder-gray-600 focus:outline-none focus:border-[#00c030] transition"/>
+        </div>
+      </div>
+
+      <div class="flex gap-3 mt-4 flex-wrap">
+        <button onclick="saveEmbeddingConfig()" id="save-config-btn"
+                class="bg-[#00c030] hover:bg-[#00a828] text-white font-semibold
+                       px-4 py-2 rounded-lg text-sm transition">
+          Save
+        </button>
+        <button onclick="testEmbeddingConfig()" id="test-config-btn"
+                class="bg-transparent border border-gray-600 hover:border-[#00c030] text-gray-300
+                       hover:text-white font-semibold px-4 py-2 rounded-lg text-sm transition">
+          Test Connection
+        </button>
+      </div>
+      <p id="config-result" class="text-sm mt-3 hidden"></p>
+    </div>
+
+    <!-- Status + run button -->
     <div id="semantic-status" class="bg-[#16213e] rounded-xl p-5 space-y-4">
       <p class="text-gray-500 text-sm">Checking status…</p>
+    </div>
+
+    <!-- Clear embeddings -->
+    <div class="mt-3">
+      <button onclick="clearEmbeddings()"
+              class="text-xs text-gray-600 hover:text-red-400 transition">
+        Clear all embeddings and re-embed from scratch
+      </button>
+      <p class="text-gray-700 text-xs mt-1">Required when switching embedding models.</p>
     </div>
   </div>
 </div>
@@ -241,6 +308,81 @@
   loadExistingProfiles();
   addForm();
   loadSemanticStatus();
+  loadEmbeddingConfig();
+
+  let currentProvider = 'local';
+
+  function setProvider(p) {
+    currentProvider = p;
+    document.getElementById('btn-local').className = p === 'local'
+      ? 'px-4 py-2 rounded-lg text-sm font-medium transition border border-[#00c030] text-[#00c030] bg-[#00c030]/10'
+      : 'px-4 py-2 rounded-lg text-sm font-medium transition border border-gray-600 text-gray-400';
+    document.getElementById('btn-remote').className = p === 'remote'
+      ? 'px-4 py-2 rounded-lg text-sm font-medium transition border border-[#00c030] text-[#00c030] bg-[#00c030]/10'
+      : 'px-4 py-2 rounded-lg text-sm font-medium transition border border-gray-600 text-gray-400';
+    document.getElementById('local-desc').classList.toggle('hidden', p !== 'local');
+    document.getElementById('remote-fields').classList.toggle('hidden', p !== 'remote');
+  }
+
+  async function loadEmbeddingConfig() {
+    const res = await fetch('/api/embedding-config');
+    const cfg = await res.json();
+    setProvider(cfg.provider || 'local');
+    document.getElementById('remote-url').value = cfg.remote_url || '';
+    document.getElementById('remote-model').value = cfg.remote_model || '';
+    if (cfg.remote_key_set) document.getElementById('remote-key').placeholder = '(saved)';
+  }
+
+  async function saveEmbeddingConfig() {
+    const btn = document.getElementById('save-config-btn');
+    btn.disabled = true; btn.textContent = 'Saving…';
+    await fetch('/api/embedding-config', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        provider: currentProvider,
+        remote_url: document.getElementById('remote-url').value,
+        remote_model: document.getElementById('remote-model').value,
+        remote_key: document.getElementById('remote-key').value,
+      }),
+    });
+    btn.disabled = false; btn.textContent = 'Save';
+    showConfigResult('Saved.', true);
+  }
+
+  async function testEmbeddingConfig() {
+    const btn = document.getElementById('test-config-btn');
+    btn.disabled = true; btn.textContent = 'Testing…';
+    const res = await fetch('/api/embedding-config/test', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        provider: currentProvider,
+        remote_url: document.getElementById('remote-url').value,
+        remote_model: document.getElementById('remote-model').value,
+        remote_key: document.getElementById('remote-key').value,
+      }),
+    });
+    const data = await res.json();
+    btn.disabled = false; btn.textContent = 'Test Connection';
+    showConfigResult(data.detail, data.ok);
+  }
+
+  function showConfigResult(msg, ok) {
+    const el = document.getElementById('config-result');
+    el.textContent = msg;
+    el.className = `text-sm mt-3 ${ok ? 'text-green-400' : 'text-red-400'}`;
+    el.classList.remove('hidden');
+    setTimeout(() => el.classList.add('hidden'), 6000);
+  }
+
+  async function clearEmbeddings() {
+    if (!confirm('Clear all embeddings? You\'ll need to re-run the embedding job. This is required when switching embedding models.')) return;
+    const res = await fetch('/api/embedding-config/clear', { method: 'POST' });
+    const data = await res.json();
+    alert(`Cleared ${data.cleared} embeddings. Click "Enable Semantic Matching" to re-embed.`);
+    loadSemanticStatus();
+  }
 
   async function loadSemanticStatus() {
     const res = await fetch('/api/semantic-matching/status');
@@ -274,7 +416,10 @@
     }
 
     const pct = s.films_total > 0 ? Math.round((s.films_embedded / s.films_total) * 100) : 0;
-    const inProgress = s.films_embedded > 0 && !s.embeddings_ready;
+    const inProgress = s.computing || (s.films_embedded > 0 && !s.embeddings_ready);
+    const progressLabel = s.films_embedded > 0
+      ? `Computing embeddings… ${s.films_embedded} / ${s.films_total} (${pct}%)`
+      : 'Loading model and queuing films…';
 
     el.innerHTML = `
       <div class="space-y-3">
@@ -284,8 +429,12 @@
               <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
               <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/>
             </svg>
-            Computing embeddings… ${s.films_embedded} / ${s.films_total} (${pct}%)
-          </div>` : `
+            ${progressLabel}
+          </div>
+          ${s.films_embedded > 0 ? `
+          <div class="w-full bg-gray-700 rounded-full h-2">
+            <div class="bg-[#00c030] h-2 rounded-full transition-all" style="width:${pct}%"></div>
+          </div>` : ''}` : `
           <p class="text-gray-300 text-sm">
             ${s.films_total} films ready to embed.
             ${s.films_embedded > 0 ? `${s.films_embedded} already done.` : ''}

@@ -39,22 +39,31 @@
     <div class="bg-[#16213e] rounded-xl p-6 space-y-2">
       <div class="flex items-center gap-3">
         <span class="text-[#00c030] font-bold text-lg">2</span>
-        <h3 class="font-semibold">Compatibility score <span class="text-[#00c030] text-xs font-normal ml-1">(genre affinity)</span></h3>
+        <h3 class="font-semibold">Affinity + semantic score</h3>
         <span class="ml-auto text-xs text-gray-500">personalised</span>
       </div>
       <p class="text-gray-400 text-sm">
-        Looks at your entire watch history and computes your average rating for
-        each genre <em>and</em> each TMDB keyword (thematic tags like "anti-war",
-        "moral ambiguity", "heist"). A candidate film is scored by blending both signals
-        — 40% genre affinity, 60% keyword affinity — so thematic throughlines carry
-        more weight than broad genre buckets. A film about the psychological cost of
-        war will score high for someone who loves <em>Platoon</em> and <em>Come and See</em>,
-        even if it's listed under a different genre. For a group, each member's score
-        is averaged.
+        Two signals blended together:
+      </p>
+      <ul class="text-gray-400 text-sm list-disc list-inside space-y-1 ml-2">
+        <li>
+          <span class="text-white font-medium">Genre + keyword affinity</span> — your average rating per
+          genre and per TMDB thematic keyword ("anti-war", "heist", "moral ambiguity"). Blended 40/60 so
+          thematic throughlines carry more weight than broad genre buckets.
+        </li>
+        <li>
+          <span class="text-white font-medium">Semantic embedding similarity</span> — when enabled, each film's
+          plot is embedded as a vector using an AI language model. Your taste vector is the weighted average
+          of embeddings of films you've rated above your personal mean. Candidate films are ranked by cosine
+          similarity to that vector. Finds throughlines that genre labels miss entirely.
+        </li>
+      </ul>
+      <p class="text-gray-400 text-sm mt-1">
+        When both are available: <code class="bg-gray-800 px-1 rounded text-xs">final = 0.45 × affinity + 0.55 × semantic</code>.
+        When only affinity is available, it's used alone.
       </p>
       <p class="text-gray-500 text-xs mt-1">
-        This is the score labelled <span class="text-[#00c030]">Match</span> when collaborative filtering can't fire.
-        It only needs your own history — no other users required.
+        Only needs your own history — no other users required. Enable semantic matching on the Setup page.
       </p>
     </div>
 

@@ -162,23 +162,44 @@ Three-tier fallback chain. Each tier fills gaps left by the one above:
    Requires: ≥20 rated films per user, overlap with other users in DB
    Output: predicted rating on 0–5 scale
 
-2. Affinity scoring (affinity.py)
-   Genre affinity (40%) + keyword affinity (60%)
-   score_candidates_by_affinity()
-   Requires: user's own rated history only
+2. Affinity + semantic blend (pipeline._blend_affinity_and_semantic)
+   Genre affinity (40%) + keyword affinity (60%) → affinity score
+   Semantic: taste vector (weighted avg of above-mean film embeddings) vs candidate cosine sim
+   When both available: final = 0.45 * affinity + 0.55 * semantic
+   Requires: user's own rated history only; semantic requires embeddings to be computed
    Output: 0–5 compatibility score
 
 3. Cold-start fallback (fallback.py)
    TMDB audience average rating — no personalisation
    Shown as "TMDB: X.X" in UI (not "Match") to signal this
-
-4. [Optional, opt-in] Semantic embeddings
-   sentence-transformers all-MiniLM-L6-v2
-   Input format: "{title}. {overview}" — same at index and query time
-   Enable via Setup page toggle
 ```
 
 Group scoring: each user scored independently → sort by (n_users_scored DESC, avg_score DESC).
+
+---
+
+## Embedding provider configuration
+
+Semantic embeddings dispatch to either a local sentence-transformers model or any
+OpenAI-compatible remote API. Configured via Setup page; stored in `AppSetting` table.
+
+| AppSetting key | Default | Notes |
+|---|---|---|
+| `embedding_provider` | `local` | `local` or `remote` |
+| `embedding_remote_url` | — | e.g. `http://100.117.49.22:11434/v1` |
+| `embedding_remote_model` | — | model name as shown in Ollama/LM Studio |
+| `embedding_remote_key` | `lm-studio` | API key (Ollama ignores this) |
+| `semantic_matching_ready` | `false` | `true` when all embeddable films are done |
+| `semantic_matching_computing` | `false` | `true` while task is running |
+
+**This instance**: Jetson Ollama at `http://100.117.49.22:11434/v1`, model `nomic-embed-text` (768-dim).
+
+Important constraints:
+- Films without a TMDB overview are skipped — they have no text to embed. The status
+  endpoint counts only films *with* overviews as the total, so 100% = all embeddable films done.
+- Switching models requires clearing all embeddings first (Setup → "Clear all embeddings").
+  Different models produce incompatible vector spaces — mixing dimensions breaks cosine similarity.
+- New films are auto-embedded after each sync if `semantic_matching_ready = true`.
 
 ---
 
@@ -189,6 +210,8 @@ Group scoring: each user scored independently → sort by (n_users_scored DESC, 
 - **Keywords weighted 60%, genres 40%** — keywords are more semantically specific and better at cross-genre thematic matching. Genre acts as a broad prior when keyword data is thin.
 - **Vetoes are group-wide** — one person vetoing a film removes it for everyone, which matches the shared-viewing context.
 - **Embedding input format** — `"{title}. {overview}"` used consistently at both index and query time. This is important: embedding space coherence requires the same format everywhere.
+- **Semantic taste vector uses only above-mean films** — weight = `rating - user_mean`, clamped to positive only. Films rated below the user's average contribute nothing, so the vector points toward what the user loves rather than being dragged toward dislikes.
+- **Jetson for embedding, not Mac mini** — the Mac mini runs Qwen 3.5:9b as a daily driver. Running an embedding model there would compete for unified memory. The Jetson has dedicated GPU and runs Ollama always-on.
 
 ---
 

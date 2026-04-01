@@ -91,51 +91,118 @@ def process_zip_task(self, profile_id: int, zip_path: str):
 @celery_app.task(bind=True)
 def compute_embeddings_task(self):
     """
-    One-time (and incremental) task to compute sentence-transformer embeddings
-    for all films that don't have one yet.
+    Incremental task: compute embeddings for any film that doesn't have one yet.
 
-    Requires sentence-transformers to be installed:
-        pip install sentence-transformers
+    Dispatches to the configured provider:
+      - local  (default): sentence-transformers all-MiniLM-L6-v2, downloaded automatically
+      - remote: any OpenAI-compatible embeddings API (LM Studio, Ollama, OpenAI, etc.)
 
-    Input text format: "{title}. {overview}"
-    Model: all-MiniLM-L6-v2 (384-dim, ~80 MB, CPU-friendly)
-
-    This format is used consistently at both index time (here) and query time
-    (when building a user's taste vector), so the embedding space is coherent.
+    Input text format: "{title}. {overview}" — used consistently at index and query time.
+    Commits every 100 films so progress is visible in the UI.
     """
     import json as _json
 
-    try:
-        from sentence_transformers import SentenceTransformer
-    except ImportError:
-        logger.error("sentence-transformers not installed — run: pip install sentence-transformers")
-        return {"status": "error", "detail": "sentence-transformers not installed"}
+    with Session(engine) as session:
+        provider = _get_app_setting(session, "embedding_provider", "local")
+        if provider == "local":
+            try:
+                from sentence_transformers import SentenceTransformer  # noqa: F401
+            except ImportError:
+                logger.error("sentence-transformers not installed")
+                return {"status": "error", "detail": "sentence-transformers not installed"}
 
-    model = SentenceTransformer("all-MiniLM-L6-v2")
+        _set_app_setting(session, "semantic_matching_computing", "true")
+        session.commit()
 
     with Session(engine) as session:
-        films = session.exec(
-            select(Film).where(Film.embedding == None, Film.overview != None)
+        film_ids = session.exec(
+            select(Film.id).where(Film.embedding == None, Film.overview != None)  # noqa: E711
         ).all()
 
-        if not films:
-            logger.info("All films already have embeddings.")
+    if not film_ids:
+        logger.info("All films already have embeddings.")
+        with Session(engine) as session:
             _set_app_setting(session, "semantic_matching_ready", "true")
+            _set_app_setting(session, "semantic_matching_computing", "false")
             session.commit()
-            return {"status": "done", "computed": 0}
+        return {"status": "done", "computed": 0}
 
-        logger.info(f"Computing embeddings for {len(films)} films...")
-        texts = [f"{f.title}. {f.overview}" for f in films]
-        embeddings = model.encode(texts, batch_size=64, show_progress_bar=False)
+    logger.info(f"Computing embeddings for {len(film_ids)} films (provider={provider})...")
+    total_computed = 0
+    CHUNK = 100
 
-        for film, emb in zip(films, embeddings):
-            film.embedding = _json.dumps(emb.tolist())
-            session.add(film)
+    for i in range(0, len(film_ids), CHUNK):
+        chunk_ids = film_ids[i : i + CHUNK]
+        with Session(engine) as session:
+            chunk_films = session.exec(select(Film).where(Film.id.in_(chunk_ids))).all()
+            texts = [f"{f.title}. {f.overview}" for f in chunk_films]
+            try:
+                vectors = _get_embeddings(session, texts)
+            except Exception as exc:
+                logger.error(f"Embedding error on chunk {i}: {exc}")
+                with Session(engine) as s2:
+                    _set_app_setting(s2, "semantic_matching_computing", "false")
+                    s2.commit()
+                return {"status": "error", "detail": str(exc)}
+            for film, vec in zip(chunk_films, vectors):
+                film.embedding = _json.dumps(vec)
+                session.add(film)
+            session.commit()
+        total_computed += len(chunk_films)
+        logger.info(f"Embeddings: {total_computed}/{len(film_ids)} done")
 
+    with Session(engine) as session:
         _set_app_setting(session, "semantic_matching_ready", "true")
+        _set_app_setting(session, "semantic_matching_computing", "false")
         session.commit()
-        logger.info(f"Embeddings computed for {len(films)} films.")
-        return {"status": "done", "computed": len(films)}
+
+    logger.info(f"Embeddings complete: {total_computed} films.")
+    return {"status": "done", "computed": total_computed}
+
+
+def _get_embeddings(session: Session, texts: list[str]) -> list[list[float]]:
+    """Dispatch to the configured embedding provider."""
+    provider = _get_app_setting(session, "embedding_provider", "local")
+    if provider == "remote":
+        url = _get_app_setting(session, "embedding_remote_url", "")
+        model = _get_app_setting(session, "embedding_remote_model", "")
+        api_key = _get_app_setting(session, "embedding_remote_key", "lm-studio")
+        if not url or not model:
+            raise ValueError("Remote embedding provider requires a URL and model name")
+        return _remote_embeddings(url, model, api_key, texts)
+    else:
+        return _local_embeddings(texts)
+
+
+def _local_embeddings(texts: list[str]) -> list[list[float]]:
+    from sentence_transformers import SentenceTransformer
+    model = SentenceTransformer("all-MiniLM-L6-v2")
+    vecs = model.encode(texts, batch_size=64, show_progress_bar=False)
+    return [v.tolist() for v in vecs]
+
+
+def _remote_embeddings(url: str, model: str, api_key: str, texts: list[str]) -> list[list[float]]:
+    """Call an OpenAI-compatible /v1/embeddings endpoint in batches of 50."""
+    base = url.rstrip("/")
+    headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+    results: list[list[float]] = []
+    BATCH = 50
+    for i in range(0, len(texts), BATCH):
+        resp = httpx.post(
+            f"{base}/embeddings",
+            json={"model": model, "input": texts[i : i + BATCH]},
+            headers=headers,
+            timeout=120,
+        )
+        resp.raise_for_status()
+        data = sorted(resp.json()["data"], key=lambda x: x["index"])
+        results.extend(d["embedding"] for d in data)
+    return results
+
+
+def _get_app_setting(session: Session, key: str, default: str = "") -> str:
+    s = session.exec(select(AppSetting).where(AppSetting.key == key)).first()
+    return s.value if s else default
 
 
 def _set_app_setting(session: Session, key: str, value: str):
@@ -322,6 +389,17 @@ def _enrich_with_tmdb(session: Session, profile_usernames: set[str]):
             session.add(film)
         session.commit()
 
+        # Fetch full TMDB details (including overview) for candidate films that
+        # were created from recommendations and only have minimal data
+        for film in session.exec(
+            select(Film).where(Film.tmdb_id != None, Film.overview == None)  # noqa: E711
+        ).all():
+            data = _tmdb_get_movie(client, film.tmdb_id)
+            if data:
+                _apply_tmdb_data(session, film, data)
+                session.add(film)
+        session.commit()
+
         # Fetch keywords for any film that doesn't have them yet
         for film in session.exec(select(Film).where(Film.tmdb_id != None)).all():
             _fetch_and_store_keywords(session, client, film)
@@ -373,6 +451,12 @@ def _enrich_with_tmdb(session: Session, profile_usernames: set[str]):
                         ))
         session.commit()
         logger.info("TMDB enrichment complete")
+
+    # Auto-embed any new films if semantic matching is already enabled
+    ready = _get_app_setting(session, "semantic_matching_ready", "false")
+    computing = _get_app_setting(session, "semantic_matching_computing", "false")
+    if ready == "true" and computing != "true":
+        compute_embeddings_task.delay()
 
 
 # ---------------------------------------------------------------------------

@@ -11,7 +11,10 @@ from app.models.film import Film, VetoedFilm, AppSetting
 from app.models.job import ScrapeJob
 from app.models.profile import UserProfile
 from app.models.user import LBUser, UserFilmRating
-from app.tasks.scrape_user import run_recommendation_job, refresh_all_profiles, process_zip_task, compute_embeddings_task
+from app.tasks.scrape_user import (
+    run_recommendation_job, refresh_all_profiles, process_zip_task,
+    compute_embeddings_task, _get_app_setting, _set_app_setting,
+)
 
 router = APIRouter(prefix="/api")
 
@@ -254,14 +257,25 @@ def semantic_matching_status(session: Session = Depends(get_session)):
     ).first()
     embeddings_ready = ready_setting is not None and ready_setting.value == "true"
 
-    from app.models.film import Film as _Film
-    total = session.exec(select(_Film)).all()
-    computed = sum(1 for f in total if f.embedding is not None)
+    computing_setting = session.exec(
+        select(AppSetting).where(AppSetting.key == "semantic_matching_computing")
+    ).first()
+    computing = computing_setting is not None and computing_setting.value == "true"
+
+    from sqlalchemy import func
+    # Only count films with overviews — films without can never be embedded
+    embeddable = session.exec(
+        select(func.count(Film.id)).where(Film.overview != None)  # noqa: E711
+    ).one()
+    computed = session.exec(
+        select(func.count(Film.id)).where(Film.embedding != None)  # noqa: E711
+    ).one()
 
     return {
         "installed": installed,
         "embeddings_ready": embeddings_ready,
-        "films_total": len(total),
+        "computing": computing,
+        "films_total": embeddable,
         "films_embedded": computed,
     }
 
@@ -271,6 +285,74 @@ def enable_semantic_matching(session: Session = Depends(get_session)):
     """Trigger background embedding computation for all films."""
     compute_embeddings_task.delay()
     return {"ok": True, "detail": "Embedding job queued — check /api/semantic-matching/status for progress"}
+
+
+class EmbeddingConfigRequest(BaseModel):
+    provider: str = "local"         # "local" or "remote"
+    remote_url: str = ""            # e.g. http://192.168.1.x:1234/v1
+    remote_model: str = ""          # model name as shown in LM Studio / Ollama
+    remote_key: str = "lm-studio"  # API key (ignored by local LM Studio, needed for OpenAI)
+
+
+@router.get("/embedding-config")
+def get_embedding_config(session: Session = Depends(get_session)):
+    return {
+        "provider": _get_app_setting(session, "embedding_provider", "local"),
+        "remote_url": _get_app_setting(session, "embedding_remote_url", ""),
+        "remote_model": _get_app_setting(session, "embedding_remote_model", ""),
+        "remote_key_set": bool(_get_app_setting(session, "embedding_remote_key", "")),
+    }
+
+
+@router.post("/embedding-config")
+def save_embedding_config(body: EmbeddingConfigRequest, session: Session = Depends(get_session)):
+    _set_app_setting(session, "embedding_provider", body.provider)
+    _set_app_setting(session, "embedding_remote_url", body.remote_url.strip())
+    _set_app_setting(session, "embedding_remote_model", body.remote_model.strip())
+    if body.remote_key:
+        _set_app_setting(session, "embedding_remote_key", body.remote_key.strip())
+    session.commit()
+    return {"ok": True}
+
+
+@router.post("/embedding-config/test")
+def test_embedding_config(body: EmbeddingConfigRequest):
+    """Test a remote embedding provider by embedding a short string."""
+    if body.provider == "local":
+        try:
+            from sentence_transformers import SentenceTransformer
+            SentenceTransformer("all-MiniLM-L6-v2").encode(["test"])
+            return {"ok": True, "detail": "Local model loaded successfully"}
+        except ImportError:
+            return {"ok": False, "detail": "sentence-transformers is not installed in the container"}
+        except Exception as exc:
+            return {"ok": False, "detail": str(exc)}
+
+    from app.tasks.scrape_user import _remote_embeddings
+    try:
+        vecs = _remote_embeddings(
+            body.remote_url.strip(),
+            body.remote_model.strip(),
+            body.remote_key or "lm-studio",
+            ["Letterboxd recommender test"],
+        )
+        dim = len(vecs[0]) if vecs else 0
+        return {"ok": True, "detail": f"Connected — embedding dimension: {dim}"}
+    except Exception as exc:
+        return {"ok": False, "detail": str(exc)}
+
+
+@router.post("/embedding-config/clear")
+def clear_embeddings(session: Session = Depends(get_session)):
+    """Clear all stored embeddings and reset the ready flag (required when switching models)."""
+    films = session.exec(select(Film).where(Film.embedding != None)).all()  # noqa: E711
+    for f in films:
+        f.embedding = None
+        session.add(f)
+    _set_app_setting(session, "semantic_matching_ready", "false")
+    _set_app_setting(session, "semantic_matching_computing", "false")
+    session.commit()
+    return {"ok": True, "cleared": len(films)}
 
 
 @router.post("/refresh")

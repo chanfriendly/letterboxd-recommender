@@ -12,7 +12,10 @@ A self-hosted web app that recommends films based on your Letterboxd watch histo
 - **Automatic updates** — new diary entries sync every 6 hours via each user's public RSS feed, no manual action needed
 - **Already-seen exclusion** — films watched by *anyone* in the group (rated or not) are excluded from recommendations
 - **Genre mood filter** — pick a genre (or several) before asking for recommendations
-- **Collaborative filtering** — predicts scores using cosine-similarity on your ratings matrix, augmented with TMDB recommendation signals
+- **Collaborative filtering** — mean-centered cosine similarity on your ratings matrix, augmented with TMDB recommendation signals
+- **Semantic matching** — optional AI embedding model reads each film's plot and finds thematic throughlines across genres (e.g. "moral ambiguity under pressure" across war, crime, and drama)
+- **Genre + keyword affinity** — scores candidates by your historical ratings per genre and per TMDB thematic keyword
+- **Veto system** — permanently exclude any film from recommendations with a 6-second undo window
 - **Self-hosted** — your data never leaves your server; runs entirely in Docker
 
 ## Requirements
@@ -93,6 +96,7 @@ Letterboxd export ZIP
 | Database | SQLite via SQLModel |
 | Task queue | Celery + Redis |
 | Recommendations | scikit-learn (cosine similarity) + scipy sparse matrices |
+| Semantic embeddings | sentence-transformers or any OpenAI-compatible API (LM Studio, Ollama) |
 | Film metadata | TMDB API |
 | Container | Docker Compose (web, worker, beat, redis) |
 
@@ -108,27 +112,33 @@ To expose the app externally, put it behind a reverse proxy (nginx, Traefik) or 
 docker exec tailscale tailscale funnel --bg 8020
 ```
 
+## Semantic matching setup
+
+Semantic matching is optional and off by default. To enable it, go to the **Setup** page and scroll to "Deep Semantic Matching."
+
+**Local model** (default): the app downloads `all-MiniLM-L6-v2` (~80 MB) into the container on first use. No extra configuration needed.
+
+**Remote API**: point to any OpenAI-compatible embeddings endpoint — LM Studio, Ollama, or OpenAI. Enter the base URL and model name on the Setup page and click "Test Connection" before saving. Works well with `nomic-embed-text` on Ollama.
+
+The first run embeds every film in your library with an overview (~3,000–4,000 films typically). New films are embedded automatically after each sync. Switching embedding models requires clearing and re-embedding via the "Clear all embeddings" link on the Setup page.
+
 ## Known issues / next session
 
 No known open bugs.
 
-## Algorithm improvements (next session ideas)
-
-The current approach is user-based collaborative filtering: find users with similar rating patterns, then predict scores for unseen films based on what those similar users rated. It works but has real limitations at small scale (1–2 users, sparse overlap). Some directions worth exploring:
-
-### Better CF scoring
-- **Mean-center ratings before similarity** — a 4/5 from someone who rarely gives 4s means more than one from someone who gives 4s constantly. Subtracting each user's mean rating before computing cosine similarity (then adding it back when predicting) would make the similarity metric reflect taste more than rating habits.
-- **Item-based CF** — instead of finding similar *users*, find similar *films* ("people who liked The Godfather also liked Goodfellas"). More stable with a sparse user base because the item-item matrix accumulates signal across all users rather than relying on user-user overlap. scikit-learn supports this with the same cosine_similarity call on the transposed matrix.
-- **SVD / matrix factorization** — decompose the ratings matrix into latent "taste dimensions" (e.g. "gritty realism", "feel-good", "slow burn"). Works well with sparse data and generalizes better than nearest-neighbor CF. scipy.sparse.linalg.svds or surprise library.
+## Algorithm improvement ideas
 
 ### Better group recommendations
-- **Least-misery scoring** — for couples, the bottleneck is the person who'd enjoy it least. A hybrid of `(avg + min) / 2` would rank films that both people would genuinely enjoy over films that one person loves and the other tolerates. Currently we just average, which can surface one person's niche pick.
-- **Genre affinity weighting** — for each user, compute what fraction of their high ratings (≥4) fall into each genre. Boost predicted scores for genres the user historically loves, dampen genres they tend to rate poorly. This personalizes within the CF output.
+- **Least-misery scoring** — for couples, the bottleneck is the person who'd enjoy it least. A hybrid of `(avg + min) / 2` would surface films both people would genuinely enjoy over films one person loves and the other tolerates.
+
+### Better CF scoring
+- **Item-based CF** — instead of finding similar *users*, find similar *films*. More stable with a sparse user base because the item-item matrix accumulates signal across all users.
+- **SVD / matrix factorization** — decompose the ratings matrix into latent taste dimensions. Works well with sparse data and generalises better than nearest-neighbor CF.
 
 ### Candidate pool
-- **Expand seed depth dynamically** — if the candidate pool after genre filtering is below a threshold (say 40 films), automatically increase TMDB recommendation pages rather than accepting thin results.
-- **Letterboxd Popular lists as signals** — Letterboxd publishes public lists (e.g. "Top 250", genre charts). Seeding candidates from these would surface critically loved films that TMDB recommendations miss.
-- **Diversity pass** — after scoring, run a re-ranking step that penalizes films from the same director, franchise, or production company appearing back-to-back. Avoids returning five Christopher Nolan films in a row.
+- **Expand seed depth dynamically** — if the candidate pool after genre filtering is thin, automatically fetch more TMDB recommendation pages.
+- **Letterboxd Popular lists as signals** — seed candidates from Letterboxd's public genre charts and Top 250 to surface critically loved films TMDB misses.
+- **Diversity pass** — re-rank results to penalise the same director or franchise appearing back-to-back.
 
 ## License
 
