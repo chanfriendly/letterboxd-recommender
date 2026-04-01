@@ -2,7 +2,8 @@
 
 A self-hosted web app that recommends films based on your Letterboxd watch history. Works great for couples or small groups — it combines everyone's ratings, excludes anything anyone has already seen, and finds films you'd all enjoy.
 
-<img width="745" height="947" alt="image" src="https://github.com/user-attachments/assets/05562148-7ecc-4efb-9701-a6c2731995fe" />
+<img width="1915" height="911" alt="image" src="https://github.com/user-attachments/assets/bac3852d-2f91-44cf-a5eb-6a9e835c07f5" />
+
 
 
 ## Features
@@ -49,6 +50,9 @@ DATABASE_URL=sqlite:///./data/letterboxd_rec.db
 ## Importing your watch history
 
 Letterboxd does not offer a public API for reading watch history, so you need to export your data manually — once. After that, new entries are picked up automatically via RSS.
+
+<img width="635" height="910" alt="image" src="https://github.com/user-attachments/assets/dab1c7d0-65d3-4fb0-8b8a-f130138a7cc6" />
+
 
 1. Log in to Letterboxd and go to **letterboxd.com/settings/data/**
 2. Click **Export Your Data** — Letterboxd will email you a download link
@@ -113,6 +117,9 @@ docker exec tailscale tailscale funnel --bg 8020
 ```
 
 ## Semantic matching setup
+
+<img width="626" height="694" alt="image" src="https://github.com/user-attachments/assets/b13da02a-77cf-4795-9beb-4f2c9aa8411f" />
+
 
 Semantic matching is optional and off by default. To enable it, go to the **Setup** page and scroll to "Deep Semantic Matching."
 
