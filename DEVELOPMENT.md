@@ -110,6 +110,32 @@ git push origin main
 
 ---
 
+## Adding a column to an existing model
+
+`SQLModel.metadata.create_all()` creates *new* tables automatically on startup,
+but **never adds columns to existing tables**. If you add a field to an existing
+model (e.g. `Film`, `LBUser`), you must migrate the live DB manually.
+
+The sqlite3 CLI is not in the container image — use Python via `docker exec`:
+
+```bash
+ssh -i ~/.ssh/id_ed25519 -p 22 truenas_admin@100.127.164.49 \
+  "docker exec letterboxd-recommender-web-1 python -c \"
+import sqlite3
+conn = sqlite3.connect('/app/data/letterboxd_rec.db')
+conn.execute('ALTER TABLE <table> ADD COLUMN <name> <type>')
+conn.commit()
+conn.close()
+print('done')
+\""
+```
+
+Then restart the containers. Forgetting this step causes `OperationalError: no such column` at runtime.
+
+New *tables* (entirely new SQLModel classes) are safe — `create_all` handles those.
+
+---
+
 ## Adding a new dependency
 
 Unlike pure code changes (which just need rsync + restart), new Python packages
