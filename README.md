@@ -148,6 +148,9 @@ The first run embeds every film in your library with an overview (~3,000–4,000
 - **Letterboxd Popular lists as signals** — seed candidates from Letterboxd's public genre charts and Top 250 to surface critically loved films TMDB misses.
 - **Diversity pass** — re-rank results to penalise the same director or franchise appearing back-to-back.
 
+<img width="232" height="25" alt="image" src="https://github.com/user-attachments/assets/03887ebc-1a7b-44dd-81fd-eacb96f15ca2" />
+
+
 ## License
 
 MIT
