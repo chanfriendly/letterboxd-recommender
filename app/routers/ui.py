@@ -7,8 +7,8 @@ from app.config import settings
 from app.models.db import get_session
 from app.models.profile import UserProfile
 from app.models.user import LBUser
-from app.recommender.affinity import build_genre_affinity
-from app.models.film import Genre
+from app.recommender.affinity import build_genre_affinity, build_keyword_affinity
+from app.models.film import Genre, FilmKeyword
 
 router = APIRouter()
 templates = Jinja2Templates(directory="app/templates")
@@ -57,18 +57,24 @@ async def methodology(request: Request, session: Session = Depends(get_session))
         user = session.exec(select(LBUser).where(LBUser.username == profile.username)).first()
         if not user:
             continue
-        affinity = build_genre_affinity(session, user.id)
-        if not affinity:
+        genre_aff = build_genre_affinity(session, user.id)
+        kw_aff = build_keyword_affinity(session, user.id)
+        if not genre_aff and not kw_aff:
             continue
-        # Resolve genre_id → genre name and sort by avg rating desc
         genre_rows = []
-        for genre_id, avg_rating in sorted(affinity.items(), key=lambda x: x[1], reverse=True):
+        for genre_id, avg_rating in sorted(genre_aff.items(), key=lambda x: x[1], reverse=True):
             genre = session.get(Genre, genre_id)
             if genre:
                 genre_rows.append({"name": genre.name, "avg_rating": round(avg_rating, 2)})
+        keyword_rows = []
+        for kid, avg_rating in sorted(kw_aff.items(), key=lambda x: x[1], reverse=True)[:15]:
+            kw = session.get(FilmKeyword, kid)
+            if kw:
+                keyword_rows.append({"name": kw.name, "avg_rating": round(avg_rating, 2)})
         user_affinities.append({
             "display_name": profile.display_name or profile.username,
-            "genres": genre_rows[:10],  # top 10
+            "genres": genre_rows[:10],
+            "keywords": keyword_rows,
         })
 
     return templates.TemplateResponse(

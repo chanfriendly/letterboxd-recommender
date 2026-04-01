@@ -7,11 +7,11 @@ from pydantic import BaseModel
 from sqlmodel import Session, select
 
 from app.models.db import get_session
-from app.models.film import Film, VetoedFilm
+from app.models.film import Film, VetoedFilm, AppSetting
 from app.models.job import ScrapeJob
 from app.models.profile import UserProfile
 from app.models.user import LBUser, UserFilmRating
-from app.tasks.scrape_user import run_recommendation_job, refresh_all_profiles, process_zip_task
+from app.tasks.scrape_user import run_recommendation_job, refresh_all_profiles, process_zip_task, compute_embeddings_task
 
 router = APIRouter(prefix="/api")
 
@@ -238,6 +238,39 @@ def list_vetoes(session: Session = Depends(get_session)):
         }
         for v in rows
     ]
+
+
+@router.get("/semantic-matching/status")
+def semantic_matching_status(session: Session = Depends(get_session)):
+    """Check whether sentence-transformers is installed and embeddings are ready."""
+    try:
+        import sentence_transformers  # noqa: F401
+        installed = True
+    except ImportError:
+        installed = False
+
+    ready_setting = session.exec(
+        select(AppSetting).where(AppSetting.key == "semantic_matching_ready")
+    ).first()
+    embeddings_ready = ready_setting is not None and ready_setting.value == "true"
+
+    from app.models.film import Film as _Film
+    total = session.exec(select(_Film)).all()
+    computed = sum(1 for f in total if f.embedding is not None)
+
+    return {
+        "installed": installed,
+        "embeddings_ready": embeddings_ready,
+        "films_total": len(total),
+        "films_embedded": computed,
+    }
+
+
+@router.post("/semantic-matching/enable")
+def enable_semantic_matching(session: Session = Depends(get_session)):
+    """Trigger background embedding computation for all films."""
+    compute_embeddings_task.delay()
+    return {"ok": True, "detail": "Embedding job queued — check /api/semantic-matching/status for progress"}
 
 
 @router.post("/refresh")

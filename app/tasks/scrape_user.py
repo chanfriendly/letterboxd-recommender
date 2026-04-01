@@ -14,7 +14,7 @@ from sqlmodel import Session, select
 
 from app.config import settings
 from app.models.db import engine
-from app.models.film import Film, Genre, FilmGenreLink
+from app.models.film import Film, Genre, FilmGenreLink, FilmKeyword, FilmKeywordLink, AppSetting
 from app.models.user import LBUser, UserFilmRating
 from app.models.job import ScrapeJob
 from app.models.profile import UserProfile
@@ -87,6 +87,65 @@ def process_zip_task(self, profile_id: int, zip_path: str):
 # ---------------------------------------------------------------------------
 # Scheduled RSS refresh
 # ---------------------------------------------------------------------------
+
+@celery_app.task(bind=True)
+def compute_embeddings_task(self):
+    """
+    One-time (and incremental) task to compute sentence-transformer embeddings
+    for all films that don't have one yet.
+
+    Requires sentence-transformers to be installed:
+        pip install sentence-transformers
+
+    Input text format: "{title}. {overview}"
+    Model: all-MiniLM-L6-v2 (384-dim, ~80 MB, CPU-friendly)
+
+    This format is used consistently at both index time (here) and query time
+    (when building a user's taste vector), so the embedding space is coherent.
+    """
+    import json as _json
+
+    try:
+        from sentence_transformers import SentenceTransformer
+    except ImportError:
+        logger.error("sentence-transformers not installed — run: pip install sentence-transformers")
+        return {"status": "error", "detail": "sentence-transformers not installed"}
+
+    model = SentenceTransformer("all-MiniLM-L6-v2")
+
+    with Session(engine) as session:
+        films = session.exec(
+            select(Film).where(Film.embedding == None, Film.overview != None)
+        ).all()
+
+        if not films:
+            logger.info("All films already have embeddings.")
+            _set_app_setting(session, "semantic_matching_ready", "true")
+            session.commit()
+            return {"status": "done", "computed": 0}
+
+        logger.info(f"Computing embeddings for {len(films)} films...")
+        texts = [f"{f.title}. {f.overview}" for f in films]
+        embeddings = model.encode(texts, batch_size=64, show_progress_bar=False)
+
+        for film, emb in zip(films, embeddings):
+            film.embedding = _json.dumps(emb.tolist())
+            session.add(film)
+
+        _set_app_setting(session, "semantic_matching_ready", "true")
+        session.commit()
+        logger.info(f"Embeddings computed for {len(films)} films.")
+        return {"status": "done", "computed": len(films)}
+
+
+def _set_app_setting(session: Session, key: str, value: str):
+    existing = session.exec(select(AppSetting).where(AppSetting.key == key)).first()
+    if existing:
+        existing.value = value
+        session.add(existing)
+    else:
+        session.add(AppSetting(key=key, value=value))
+
 
 @celery_app.task
 def refresh_all_profiles():
@@ -263,6 +322,11 @@ def _enrich_with_tmdb(session: Session, profile_usernames: set[str]):
             session.add(film)
         session.commit()
 
+        # Fetch keywords for any film that doesn't have them yet
+        for film in session.exec(select(Film).where(Film.tmdb_id != None)).all():
+            _fetch_and_store_keywords(session, client, film)
+        session.commit()
+
         # Build recommendation signals from highly-rated seeds
         high_rated = session.exec(
             select(UserFilmRating, LBUser)
@@ -433,6 +497,41 @@ def _apply_tmdb_data(session: Session, film: Film, data: dict):
             )
         ).first():
             session.add(FilmGenreLink(film_id=film.id, genre_id=genre.id))
+
+
+def _fetch_and_store_keywords(session: Session, client: httpx.Client, film: Film):
+    """Fetch TMDB keywords for a film and persist them if not already stored."""
+    if not film.tmdb_id:
+        return
+    already = session.exec(
+        select(FilmKeywordLink).where(FilmKeywordLink.film_id == film.id)
+    ).first()
+    if already:
+        return  # already fetched
+    try:
+        r = client.get(
+            f"{TMDB_BASE}/movie/{film.tmdb_id}/keywords",
+            params={"api_key": settings.tmdb_api_key},
+        )
+        r.raise_for_status()
+        keywords = r.json().get("keywords", [])
+    except Exception:
+        return
+    for kw in keywords:
+        keyword = session.exec(
+            select(FilmKeyword).where(FilmKeyword.tmdb_keyword_id == kw["id"])
+        ).first()
+        if not keyword:
+            keyword = FilmKeyword(tmdb_keyword_id=kw["id"], name=kw["name"])
+            session.add(keyword)
+            session.flush()
+        if not session.exec(
+            select(FilmKeywordLink).where(
+                FilmKeywordLink.film_id == film.id,
+                FilmKeywordLink.keyword_id == keyword.id,
+            )
+        ).first():
+            session.add(FilmKeywordLink(film_id=film.id, keyword_id=keyword.id))
 
 
 def _apply_genre_ids(session: Session, film: Film, genre_ids: list[int]):

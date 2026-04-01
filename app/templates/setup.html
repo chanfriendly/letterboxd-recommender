@@ -38,6 +38,27 @@
   <p class="text-center text-gray-600 text-xs">
     Only the username is stored after import. The ZIP file is deleted immediately after processing.
   </p>
+
+  <!-- Semantic matching toggle -->
+  <div class="mt-10 border-t border-gray-700 pt-8">
+    <h2 class="text-lg font-semibold mb-1">Deep Semantic Matching</h2>
+    <p class="text-gray-400 text-sm mb-4">
+      Uses a local AI model (<span class="text-white">all-MiniLM-L6-v2</span>) to read the plot
+      description of every film in your library and understand thematic meaning — not just genre
+      labels. Once enabled, the app can follow taste throughlines across genres: if you love films
+      about moral ambiguity under pressure, it will find others with that same undercurrent even
+      if they're tagged differently. Runs entirely on your server; no data leaves your machine.
+    </p>
+    <p class="text-gray-500 text-xs mb-5">
+      Requires <code class="bg-gray-800 px-1 rounded">sentence-transformers</code> to be installed
+      in the container (<code class="bg-gray-800 px-1 rounded">pip install sentence-transformers</code>).
+      The first run embeds all films in your library — a few minutes depending on library size.
+      New films are embedded automatically after that.
+    </p>
+    <div id="semantic-status" class="bg-[#16213e] rounded-xl p-5 space-y-4">
+      <p class="text-gray-500 text-sm">Checking status…</p>
+    </div>
+  </div>
 </div>
 
 <script>
@@ -219,5 +240,75 @@
 
   loadExistingProfiles();
   addForm();
+  loadSemanticStatus();
+
+  async function loadSemanticStatus() {
+    const res = await fetch('/api/semantic-matching/status');
+    const s = await res.json();
+    const el = document.getElementById('semantic-status');
+
+    if (!s.installed) {
+      el.innerHTML = `
+        <div class="flex items-start gap-3">
+          <span class="text-yellow-400 text-lg mt-0.5">⚠</span>
+          <div>
+            <p class="text-white text-sm font-semibold mb-1">sentence-transformers not installed</p>
+            <p class="text-gray-400 text-sm">Add it to your container to unlock semantic matching:</p>
+            <code class="block mt-2 bg-gray-900 text-green-400 text-xs rounded px-3 py-2">pip install sentence-transformers</code>
+            <p class="text-gray-500 text-xs mt-2">Then restart the worker container and return here to enable it.</p>
+          </div>
+        </div>`;
+      return;
+    }
+
+    if (s.embeddings_ready && s.films_embedded === s.films_total) {
+      el.innerHTML = `
+        <div class="flex items-center gap-3">
+          <span class="text-[#00c030] text-xl">✓</span>
+          <div>
+            <p class="text-white text-sm font-semibold">Semantic matching active</p>
+            <p class="text-gray-400 text-sm">${s.films_embedded} of ${s.films_total} films embedded.</p>
+          </div>
+        </div>`;
+      return;
+    }
+
+    const pct = s.films_total > 0 ? Math.round((s.films_embedded / s.films_total) * 100) : 0;
+    const inProgress = s.films_embedded > 0 && !s.embeddings_ready;
+
+    el.innerHTML = `
+      <div class="space-y-3">
+        ${inProgress ? `
+          <div class="flex items-center gap-2 text-sm text-yellow-400">
+            <svg class="animate-spin h-4 w-4 shrink-0" fill="none" viewBox="0 0 24 24">
+              <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+              <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/>
+            </svg>
+            Computing embeddings… ${s.films_embedded} / ${s.films_total} (${pct}%)
+          </div>` : `
+          <p class="text-gray-300 text-sm">
+            ${s.films_total} films ready to embed.
+            ${s.films_embedded > 0 ? `${s.films_embedded} already done.` : ''}
+          </p>`
+        }
+        ${!inProgress ? `
+        <button onclick="enableSemantic()" id="enable-btn"
+                class="bg-[#00c030] hover:bg-[#00a828] text-white font-semibold
+                       px-5 py-2 rounded-lg text-sm transition">
+          Enable Semantic Matching
+        </button>` : ''}
+      </div>`;
+
+    if (inProgress) {
+      setTimeout(loadSemanticStatus, 5000);
+    }
+  }
+
+  async function enableSemantic() {
+    document.getElementById('enable-btn').disabled = true;
+    document.getElementById('enable-btn').textContent = 'Starting…';
+    await fetch('/api/semantic-matching/enable', { method: 'POST' });
+    setTimeout(loadSemanticStatus, 1500);
+  }
 </script>
 {% endblock %}

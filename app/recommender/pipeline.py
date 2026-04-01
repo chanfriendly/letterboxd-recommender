@@ -103,7 +103,7 @@ def run_group_recommendations(
     if not ratings_flat:
         return _affinity_then_cold_start(session, usernames, genre_ids, candidate_film_ids, seen_combined, top_n, min_tmdb_rating)
 
-    matrix, all_usernames, film_ids = build_sparse_matrix(ratings_flat)
+    matrix, all_usernames, film_ids, user_means = build_sparse_matrix(ratings_flat)
 
     # Score candidates for each user independently
     per_user_scores: list[dict[int, float]] = []
@@ -117,6 +117,7 @@ def run_group_recommendations(
             film_ids=film_ids,
             seen_film_ids=seen_combined,
             candidate_film_ids=candidate_film_ids,
+            user_means=user_means,
         )
         per_user_scores.append(dict(scored))
 
@@ -190,7 +191,7 @@ def _run_single(
     if not ratings_flat:
         return _affinity_then_cold_start(session, [username], genre_ids, candidate_film_ids, seen_film_ids, top_n, min_tmdb_rating)
 
-    matrix, usernames, film_ids = build_sparse_matrix(ratings_flat)
+    matrix, usernames, film_ids, user_means = build_sparse_matrix(ratings_flat)
     similar = find_similar_users(username, matrix, usernames, top_k=50)
     if not similar:
         return _affinity_then_cold_start(session, [username], genre_ids, candidate_film_ids, seen_film_ids, top_n, min_tmdb_rating)
@@ -203,6 +204,7 @@ def _run_single(
         film_ids=film_ids,
         seen_film_ids=seen_film_ids,
         candidate_film_ids=candidate_film_ids,
+        user_means=user_means,
     )
     results = _enrich(session, scored[:top_n], min_tmdb_rating)
     if len(results) < top_n:

@@ -27,8 +27,27 @@ class Film(SQLModel, table=True):
     tmdb_rating: Optional[float] = None
     lb_rating: Optional[float] = None
 
+    embedding: Optional[str] = None  # JSON float list from sentence-transformers, null until computed
+
     genres: List[Genre] = Relationship(back_populates="films", link_model=FilmGenreLink)
     ratings: List["UserFilmRating"] = Relationship(back_populates="film")
+
+
+class FilmKeyword(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    tmdb_keyword_id: int = Field(unique=True, index=True)
+    name: str
+
+
+class FilmKeywordLink(SQLModel, table=True):
+    film_id: Optional[int] = Field(default=None, foreign_key="film.id", primary_key=True)
+    keyword_id: Optional[int] = Field(default=None, foreign_key="filmkeyword.id", primary_key=True)
+
+
+class AppSetting(SQLModel, table=True):
+    """Key/value store for user-configurable feature flags."""
+    key: str = Field(primary_key=True)
+    value: str  # stored as string; cast at read time
 
 
 class VetoedFilm(SQLModel, table=True):

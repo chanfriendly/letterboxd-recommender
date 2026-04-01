@@ -44,10 +44,13 @@
       </div>
       <p class="text-gray-400 text-sm">
         Looks at your entire watch history and computes your average rating for
-        each genre. A candidate film is then scored by averaging the affinities
-        for its genres — so a film tagged Thriller &amp; Crime will score higher
-        for someone who consistently rates those genres 4+ than for someone who
-        avoids them. For a group, each member's affinity score is averaged.
+        each genre <em>and</em> each TMDB keyword (thematic tags like "anti-war",
+        "moral ambiguity", "heist"). A candidate film is scored by blending both signals
+        — 40% genre affinity, 60% keyword affinity — so thematic throughlines carry
+        more weight than broad genre buckets. A film about the psychological cost of
+        war will score high for someone who loves <em>Platoon</em> and <em>Come and See</em>,
+        even if it's listed under a different genre. For a group, each member's score
+        is averaged.
       </p>
       <p class="text-gray-500 text-xs mt-1">
         This is the score labelled <span class="text-[#00c030]">Match</span> when collaborative filtering can't fire.
@@ -132,20 +135,39 @@
     </p>
     <div class="grid grid-cols-1 sm:grid-cols-2 gap-6">
       {% for user in user_affinities %}
-      <div class="bg-[#16213e] rounded-xl p-5">
-        <h3 class="font-semibold mb-4">{{ user.display_name }}</h3>
-        <div class="space-y-2">
-          {% for g in user.genres %}
-          <div class="flex items-center gap-2">
-            <span class="text-gray-300 text-sm w-36 truncate">{{ g.name }}</span>
-            <div class="flex-1 bg-gray-700 rounded-full h-2">
-              <div class="bg-[#00c030] h-2 rounded-full"
-                   style="width: {{ ((g.avg_rating / 5) * 100) | round | int }}%"></div>
+      <div class="bg-[#16213e] rounded-xl p-5 space-y-5">
+        <h3 class="font-semibold">{{ user.display_name }}</h3>
+        {% if user.genres %}
+        <div>
+          <p class="text-xs text-gray-500 uppercase tracking-wider mb-2">Genres</p>
+          <div class="space-y-2">
+            {% for g in user.genres %}
+            <div class="flex items-center gap-2">
+              <span class="text-gray-300 text-sm w-36 truncate">{{ g.name }}</span>
+              <div class="flex-1 bg-gray-700 rounded-full h-2">
+                <div class="bg-[#00c030] h-2 rounded-full"
+                     style="width: {{ ((g.avg_rating / 5) * 100) | round | int }}%"></div>
+              </div>
+              <span class="text-[#00c030] text-xs w-8 text-right">{{ g.avg_rating }}</span>
             </div>
-            <span class="text-[#00c030] text-xs w-8 text-right">{{ g.avg_rating }}</span>
+            {% endfor %}
           </div>
-          {% endfor %}
         </div>
+        {% endif %}
+        {% if user.keywords %}
+        <div>
+          <p class="text-xs text-gray-500 uppercase tracking-wider mb-2">Themes &amp; keywords</p>
+          <div class="flex flex-wrap gap-2">
+            {% for k in user.keywords %}
+            <span class="px-2 py-1 rounded-full text-xs"
+                  style="background: rgba(0,192,48,{{ ((k.avg_rating - 2) / 3) | round(2) }}); border: 1px solid rgba(0,192,48,0.3); color: #e5e7eb;">
+              {{ k.name }} <span class="text-[#00c030]">{{ k.avg_rating }}</span>
+            </span>
+            {% endfor %}
+          </div>
+          <p class="text-gray-600 text-xs mt-2">Brighter = higher average rating for films with this theme</p>
+        </div>
+        {% endif %}
       </div>
       {% endfor %}
     </div>
