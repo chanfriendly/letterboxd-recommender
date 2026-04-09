@@ -38,12 +38,14 @@ def parse_letterboxd_zip(zip_bytes: bytes) -> list[dict]:
                     uri = row.get("Letterboxd URI", "").strip()
                     year_str = row.get("Year", "")
                     rating_str = row.get("Rating", "")
+                    date_str = row.get("Date", "").strip()
                     entry = {
                         "title": title,
                         "year": int(year_str) if year_str.isdigit() else None,
                         "rating": float(rating_str) if rating_str else None,
                         "lb_uri": uri,
                         "watched_only": False,
+                        "watched_date": date_str or None,
                     }
                     rated[uri or title] = entry
 
@@ -57,12 +59,14 @@ def parse_letterboxd_zip(zip_bytes: bytes) -> list[dict]:
                     key = uri or title
                     if key not in rated:
                         year_str = row.get("Year", "")
+                        date_str = row.get("Date", "").strip()
                         watched_only.append({
                             "title": title,
                             "year": int(year_str) if year_str.isdigit() else None,
                             "rating": None,
                             "lb_uri": uri,
                             "watched_only": True,
+                            "watched_date": date_str or None,
                         })
 
     return list(rated.values()) + watched_only

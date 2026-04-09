@@ -44,6 +44,20 @@ class FilmKeywordLink(SQLModel, table=True):
     keyword_id: Optional[int] = Field(default=None, foreign_key="filmkeyword.id", primary_key=True)
 
 
+class FilmPerson(SQLModel, table=True):
+    """A director or cast member from TMDB credits."""
+    id: Optional[int] = Field(default=None, primary_key=True)
+    tmdb_person_id: int = Field(unique=True, index=True)
+    name: str
+
+
+class FilmPersonLink(SQLModel, table=True):
+    """Links a film to a person with a role tag ('director' or 'cast')."""
+    film_id: Optional[int] = Field(default=None, foreign_key="film.id", primary_key=True)
+    person_id: Optional[int] = Field(default=None, foreign_key="filmperson.id", primary_key=True)
+    role: str = Field(primary_key=True)  # "director" or "cast"
+
+
 class AppSetting(SQLModel, table=True):
     """Key/value store for user-configurable feature flags."""
     key: str = Field(primary_key=True)

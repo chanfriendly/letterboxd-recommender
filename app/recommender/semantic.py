@@ -24,6 +24,7 @@ from sqlmodel import Session, select
 
 from app.models.film import Film, AppSetting
 from app.models.user import LBUser, UserFilmRating
+from app.recommender.affinity import _temporal_weight
 
 
 def semantic_matching_enabled(session: Session) -> bool:
@@ -59,7 +60,7 @@ def _build_taste_vector(
         if deviation <= 0:
             continue  # ignore films rated at or below the user's average
         vectors.append(np.array(json.loads(film.embedding), dtype=np.float32))
-        weights.append(deviation)
+        weights.append(deviation * _temporal_weight(ufr.watched_at))
 
     if not vectors:
         return None

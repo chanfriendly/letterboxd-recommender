@@ -14,7 +14,7 @@ from sqlmodel import Session, select
 
 from app.config import settings
 from app.models.db import engine
-from app.models.film import Film, Genre, FilmGenreLink, FilmKeyword, FilmKeywordLink, AppSetting
+from app.models.film import Film, Genre, FilmGenreLink, FilmKeyword, FilmKeywordLink, FilmPerson, FilmPersonLink, AppSetting
 from app.models.user import LBUser, UserFilmRating
 from app.models.job import ScrapeJob
 from app.models.profile import UserProfile
@@ -64,6 +64,7 @@ def process_zip_task(self, profile_id: int, zip_path: str):
                     "rating": e.get("rating"),
                     "title": e.get("title"),
                     "year": e.get("year"),
+                    "watched_date": e.get("watched_date"),
                 })
 
             _persist_films(session, profile, films)
@@ -242,7 +243,7 @@ def refresh_profile_rss_task(profile_id: int):
         try:
             entries = fetch_rss_entries(profile.username)
             films = [
-                {"slug": e["slug"], "rating": e.get("rating")}
+                {"slug": e["slug"], "rating": e.get("rating"), "watched_date": e.get("watched_date")}
                 for e in entries
                 if e.get("slug")
             ]
@@ -377,7 +378,8 @@ def _persist_films(session: Session, profile: UserProfile, films: list[dict]):
                 session.add(film)
                 session.flush()
 
-            _upsert_rating(session, user.id, film.id, entry.get("rating"))
+            watched_at = _parse_date(entry.get("watched_date"))
+            _upsert_rating(session, user.id, film.id, entry.get("rating"), watched_at)
 
     user.scraped_at = datetime.utcnow()
     session.add(user)
@@ -431,9 +433,10 @@ def _enrich_with_tmdb(session: Session, profile_usernames: set[str]):
                 session.add(film)
         session.commit()
 
-        # Fetch keywords for any film that doesn't have them yet
+        # Fetch keywords and credits for any film that doesn't have them yet
         for film in session.exec(select(Film).where(Film.tmdb_id != None)).all():
             _fetch_and_store_keywords(session, client, film)
+            _fetch_and_store_credits(session, client, film)
         session.commit()
 
         # Build recommendation signals from highly-rated seeds
@@ -572,7 +575,8 @@ def _tmdb_get_recommendations(
 
 
 def _upsert_rating(
-    session: Session, user_id: int, film_id: int, rating: float | None
+    session: Session, user_id: int, film_id: int, rating: float | None,
+    watched_at: datetime | None = None,
 ):
     existing = session.exec(
         select(UserFilmRating).where(
@@ -583,10 +587,12 @@ def _upsert_rating(
     if existing:
         if rating is not None:
             existing.rating = rating
-            session.add(existing)
+        if watched_at is not None and (existing.watched_at is None or watched_at > existing.watched_at):
+            existing.watched_at = watched_at
+        session.add(existing)
     else:
         session.add(
-            UserFilmRating(user_id=user_id, film_id=film_id, rating=rating)
+            UserFilmRating(user_id=user_id, film_id=film_id, rating=rating, watched_at=watched_at)
         )
 
 
@@ -647,6 +653,60 @@ def _fetch_and_store_keywords(session: Session, client: httpx.Client, film: Film
             )
         ).first():
             session.add(FilmKeywordLink(film_id=film.id, keyword_id=keyword.id))
+
+
+def _parse_date(date_str: str | None) -> datetime | None:
+    """Parse a 'YYYY-MM-DD' date string into a UTC-naive datetime, or return None."""
+    if not date_str:
+        return None
+    try:
+        return datetime.strptime(date_str, "%Y-%m-%d")
+    except ValueError:
+        return None
+
+
+def _fetch_and_store_credits(session: Session, client: httpx.Client, film: Film):
+    """Fetch TMDB credits (director + top 3 cast) and persist if not already stored."""
+    if not film.tmdb_id:
+        return
+    already = session.exec(
+        select(FilmPersonLink).where(FilmPersonLink.film_id == film.id)
+    ).first()
+    if already:
+        return
+    try:
+        r = client.get(
+            f"{TMDB_BASE}/movie/{film.tmdb_id}/credits",
+            params={"api_key": settings.tmdb_api_key},
+        )
+        r.raise_for_status()
+        data = r.json()
+    except Exception:
+        return
+
+    people: list[tuple[int, str, str]] = []  # (tmdb_person_id, name, role)
+    for member in data.get("crew", []):
+        if member.get("job") == "Director":
+            people.append((member["id"], member["name"], "director"))
+    for member in data.get("cast", [])[:3]:  # top 3 billed cast
+        people.append((member["id"], member["name"], "cast"))
+
+    for tmdb_person_id, name, role in people:
+        person = session.exec(
+            select(FilmPerson).where(FilmPerson.tmdb_person_id == tmdb_person_id)
+        ).first()
+        if not person:
+            person = FilmPerson(tmdb_person_id=tmdb_person_id, name=name)
+            session.add(person)
+            session.flush()
+        if not session.exec(
+            select(FilmPersonLink).where(
+                FilmPersonLink.film_id == film.id,
+                FilmPersonLink.person_id == person.id,
+                FilmPersonLink.role == role,
+            )
+        ).first():
+            session.add(FilmPersonLink(film_id=film.id, person_id=person.id, role=role))
 
 
 _TMDB_GENRE_NAMES = {
