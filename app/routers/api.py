@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from pydantic import BaseModel
 from sqlmodel import Session, select
 
+from app.config import settings
 from app.models.db import get_session
 from app.models.film import Film, VetoedFilm, AppSetting
 from app.models.job import ScrapeJob
@@ -75,6 +76,8 @@ def get_profiles(session: Session = Depends(get_session)):
 
 @router.post("/profiles")
 def save_profile(body: ProfileRequest, session: Session = Depends(get_session)):
+    if settings.demo_mode:
+        raise HTTPException(status_code=403, detail="Demo mode: user management is disabled.")
     username = body.username.strip().lower()
     if not username:
         raise HTTPException(status_code=400, detail="Username is required")
@@ -111,6 +114,8 @@ async def upload_letterboxd_export(
     file: UploadFile = File(...),
     session: Session = Depends(get_session),
 ):
+    if settings.demo_mode:
+        raise HTTPException(status_code=403, detail="Demo mode: user management is disabled.")
     profile = session.get(UserProfile, profile_id)
     if not profile:
         raise HTTPException(status_code=404, detail="Profile not found")
@@ -138,6 +143,8 @@ async def upload_letterboxd_export(
 
 @router.delete("/profiles/{profile_id}")
 def delete_profile(profile_id: int, session: Session = Depends(get_session)):
+    if settings.demo_mode:
+        raise HTTPException(status_code=403, detail="Demo mode: user management is disabled.")
     profile = session.get(UserProfile, profile_id)
     if not profile:
         raise HTTPException(status_code=404, detail="Profile not found")
@@ -357,6 +364,8 @@ def clear_embeddings(session: Session = Depends(get_session)):
 
 @router.post("/refresh")
 def trigger_refresh():
+    if settings.demo_mode:
+        raise HTTPException(status_code=403, detail="Demo mode: user management is disabled.")
     refresh_all_profiles.delay()
     return {"ok": True}
 

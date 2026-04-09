@@ -12,6 +12,7 @@ class Settings(BaseSettings):
     cf_cold_start_threshold: int = 20
     cache_ttl_seconds: int = 21600
     scrape_cache_hours: int = 24
+    demo_mode: bool = False
 
 
 settings = Settings()

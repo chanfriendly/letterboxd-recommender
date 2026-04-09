@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from sqlmodel import Session, select
 
@@ -38,13 +38,15 @@ TMDB_GENRES = [
 @router.get("/", response_class=HTMLResponse)
 async def index(request: Request):
     return templates.TemplateResponse(
-        "index.html", {"request": request, "genres": TMDB_GENRES}
+        "index.html", {"request": request, "genres": TMDB_GENRES, "demo_mode": settings.demo_mode}
     )
 
 
 @router.get("/setup", response_class=HTMLResponse)
 async def setup(request: Request):
-    return templates.TemplateResponse("setup.html", {"request": request})
+    if settings.demo_mode:
+        return RedirectResponse(url="/", status_code=302)
+    return templates.TemplateResponse("setup.html", {"request": request, "demo_mode": False})
 
 
 @router.get("/methodology", response_class=HTMLResponse)
@@ -83,5 +85,6 @@ async def methodology(request: Request, session: Session = Depends(get_session))
             "request": request,
             "user_affinities": user_affinities,
             "cf_threshold": settings.cf_cold_start_threshold,
+            "demo_mode": settings.demo_mode,
         },
     )

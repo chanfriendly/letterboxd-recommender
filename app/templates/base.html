@@ -18,7 +18,7 @@
     <span class="text-xl font-bold tracking-tight">Letterboxd Recommender</span>
     <nav class="ml-auto flex gap-4 text-sm">
       <a href="/" class="text-gray-400 hover:text-white transition">Home</a>
-      <a href="/setup" class="text-gray-400 hover:text-white transition">Setup</a>
+      {% if not demo_mode %}<a href="/setup" class="text-gray-400 hover:text-white transition">Setup</a>{% endif %}
       <a href="/methodology" class="text-gray-400 hover:text-white transition">How It Works</a>
     </nav>
   </header>
