@@ -8,7 +8,7 @@
 
 **Phase:** Feature-complete MVP / refinement  
 **Last updated:** 2026-04-09  
-**Active focus:** No active task — see Next Steps for candidates.
+**Active focus:** Scoring improvements shipped — temporal weighting + director/cast affinity live.
 
 ---
 
@@ -45,6 +45,11 @@
 - Added configurable remote embedding provider (Jetson Ollama `nomic-embed-text` 768-dim)
 - Status endpoint counts only films with TMDB overviews as `films_total` (100% = all embeddable films done)
 - New films auto-embedded after each sync when `semantic_matching_ready=true`
+
+### Session 008 — Scoring improvements: temporal weighting + director/cast affinity
+- **Temporal weighting:** All affinity signals (genre, keyword, director, cast) and the semantic taste vector now apply exponential decay with an 18-month half-life. Recent ratings carry more weight than old ones. Films without a `watched_at` date get full weight (backward-compatible). `watched_at` is now populated from the Letterboxd ZIP export `Date` column and RSS `watched_date`.
+- **Director/cast affinity:** New `FilmPerson` and `FilmPersonLink` tables. TMDB `/credits` fetched for every film (director + top 3 cast). Affinity blend updated: 30% genre + 45% keyword + 15% director + 10% cast. Directors carry 2× weight of cast within the people signal.
+- Backfill note: existing films will get credits populated incrementally on the next sync/enrichment pass. No manual migration needed — new tables were created automatically by `create_all`.
 
 ### Session 007 — Bug fixes
 - Fixed genre exclude filter not applied in cold-start fallback
@@ -86,13 +91,17 @@
 - **Letterboxd Popular lists as signals** — seed from public genre charts and Top 250
 - **Diversity pass** — penalise same director or franchise appearing back-to-back in results
 
+### Discovery / serendipity (future, needs design thought)
+- **Serendipity tier** — a separate small section surfacing films that score low on affinity/semantic similarity but are loved by CF-similar users. Goal: genuine surprises that break pattern without being random. Requires UI change (second results section) and careful tuning of what counts as "surprising enough." Held for design discussion.
+
 ---
 
 ## Next Steps
 
-1. Pick an algorithm improvement from the backlog (least-misery scoring or item-based CF are highest-value)
-2. Investigate NAS load average (~13) — determine if this app is a contributor
-3. Address any new issues discovered on the Tailscale URL
+1. Trigger a re-import or sync for existing users so director/cast credits get backfilled via `_enrich_with_tmdb`
+2. Pick next algorithm improvement from the backlog (least-misery scoring for groups, or item-based CF)
+3. Design the serendipity/contrast tier (held — needs more thought before implementation)
+4. Investigate NAS load average (~13) — determine if this app is a contributor
 
 ---
 
@@ -115,6 +124,6 @@
 **Summary:** Full project build from scratch through bug-fix phase. See Completed Work above.
 
 ### Session 008 — 2026-04-09
-**Goal:** Add CLAUDE.md and CHANGELOG.md  
-**Outcome:** Created both files. No code changes.  
-**Next session should start with:** Review Next Steps above and pick a task.
+**Goal:** Add CLAUDE.md, CHANGELOG.md, push demo mode, review and improve scoring  
+**Outcome:** Created docs. Pushed demo mode (was already live on NAS but untracked). Shipped temporal weighting + director/cast affinity. RSS confirmed working (3 entries in last 7 days for chanfriendly). Serendipity tier added to backlog for future design.  
+**Next session should start with:** Trigger a sync to backfill credits for existing films, then pick from Next Steps.
