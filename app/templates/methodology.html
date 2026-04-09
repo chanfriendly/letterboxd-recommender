@@ -47,13 +47,18 @@
       </p>
       <ul class="text-gray-400 text-sm list-disc list-inside space-y-1 ml-2">
         <li>
-          <span class="text-white font-medium">Genre + keyword affinity</span> — your average rating per
-          genre and per TMDB thematic keyword ("anti-war", "heist", "moral ambiguity"). Blended 40/60 so
-          thematic throughlines carry more weight than broad genre buckets.
+          <span class="text-white font-medium">Affinity scoring</span> — four signals combined into one compatibility score:
+          <ul class="list-disc list-inside ml-4 mt-1 space-y-1 text-gray-500">
+            <li><span class="text-gray-300">Genre</span> (30%) — your average rating per TMDB genre</li>
+            <li><span class="text-gray-300">Keyword</span> (45%) — your average rating per thematic keyword ("anti-war", "heist", "moral ambiguity") — weighted higher because keywords are more specific than genres</li>
+            <li><span class="text-gray-300">Director</span> (15%) — your average rating across a director's films</li>
+            <li><span class="text-gray-300">Cast</span> (10%) — your average rating across films sharing top cast members; directors carry 2× the weight of cast within this signal</li>
+          </ul>
+          <p class="text-gray-500 text-xs mt-1">All four signals use <span class="text-gray-400">temporal decay</span> — ratings from 18 months ago carry half the weight of a rating from today, so the scores reflect your current taste rather than a flat average of your entire history.</p>
         </li>
-        <li>
+        <li class="mt-2">
           <span class="text-white font-medium">Semantic embedding similarity</span> — when enabled, each film's
-          plot is embedded as a vector using an AI language model. Your taste vector is the weighted average
+          plot is embedded as a vector using an AI language model. Your taste vector is the temporally-weighted average
           of embeddings of films you've rated above your personal mean. Candidate films are ranked by cosine
           similarity to that vector. Finds throughlines that genre labels miss entirely.
         </li>

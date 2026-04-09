@@ -15,7 +15,7 @@ A self-hosted web app that recommends films based on your Letterboxd watch histo
 - **Genre mood filter** — pick a genre (or several) before asking for recommendations
 - **Collaborative filtering** — mean-centered cosine similarity on your ratings matrix, augmented with TMDB recommendation signals
 - **Semantic matching** — optional AI embedding model reads each film's plot and finds thematic throughlines across genres (e.g. "moral ambiguity under pressure" across war, crime, and drama)
-- **Genre + keyword affinity** — scores candidates by your historical ratings per genre and per TMDB thematic keyword
+- **Affinity scoring** — scores candidates by genre, thematic keyword, director, and cast, blended by signal strength; all signals are temporally weighted so recent ratings count more than old ones
 - **Veto system** — permanently exclude any film from recommendations with a 6-second undo window
 - **Self-hosted** — your data never leaves your server; runs entirely in Docker
 
