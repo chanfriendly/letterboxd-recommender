@@ -20,3 +20,4 @@ services:
     name: letterboxd-redis
     plan: free
     maxmemoryPolicy: noeviction
+    ipAllowList: []
