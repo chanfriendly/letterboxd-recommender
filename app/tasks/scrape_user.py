@@ -331,6 +331,7 @@ def _persist_films(session: Session, profile: UserProfile, films: list[dict]):
         session.add(user)
         session.flush()
 
+    api_key = get_tmdb_api_key(session)
     with httpx.Client(timeout=15) as client:
         for entry in films:
             slug = entry["slug"]
@@ -348,11 +349,11 @@ def _persist_films(session: Session, profile: UserProfile, films: list[dict]):
                 # Try slug-derived search first (works for readable slugs like
                 # "mulholland-drive-2001"), then fall back to title+year from
                 # the CSV (catches short-code slugs like "2DjO")
-                tmdb_id = _tmdb_search_by_slug(client, slug)
+                tmdb_id = _tmdb_search_by_slug(client, slug, api_key)
                 if not tmdb_id and entry.get("title"):
-                    tmdb_id = _tmdb_search(client, entry["title"], entry.get("year"))
+                    tmdb_id = _tmdb_search(client, entry["title"], entry.get("year"), api_key)
                 if tmdb_id:
-                    data = _tmdb_get_movie(client, tmdb_id)
+                    data = _tmdb_get_movie(client, tmdb_id, api_key)
                     if data:
                         _apply_tmdb_data(session, film, data)
                 session.add(film)
@@ -370,9 +371,9 @@ def _persist_films(session: Session, profile: UserProfile, films: list[dict]):
                     film.year = real_year
                 session.add(film)
                 session.flush()
-                tmdb_id = _tmdb_search(client, real_title, real_year)
+                tmdb_id = _tmdb_search(client, real_title, real_year, api_key)
                 if tmdb_id:
-                    data = _tmdb_get_movie(client, tmdb_id)
+                    data = _tmdb_get_movie(client, tmdb_id, api_key)
                     if data:
                         _apply_tmdb_data(session, film, data)
                 session.add(film)
@@ -411,12 +412,13 @@ def _enrich_with_tmdb(session: Session, profile_usernames: set[str]):
                 ).all()
             )
 
+    api_key = get_tmdb_api_key(session)
     with httpx.Client(timeout=15) as client:
         # Fill missing TMDB data
         for film in session.exec(select(Film).where(Film.tmdb_id == None)).all():
-            tmdb_id = _tmdb_search(client, film.title, film.year)
+            tmdb_id = _tmdb_search(client, film.title, film.year, api_key)
             if tmdb_id:
-                data = _tmdb_get_movie(client, tmdb_id)
+                data = _tmdb_get_movie(client, tmdb_id, api_key)
                 if data:
                     _apply_tmdb_data(session, film, data)
             session.add(film)
@@ -427,7 +429,7 @@ def _enrich_with_tmdb(session: Session, profile_usernames: set[str]):
         for film in session.exec(
             select(Film).where(Film.tmdb_id != None, Film.overview == None)  # noqa: E711
         ).all():
-            data = _tmdb_get_movie(client, film.tmdb_id)
+            data = _tmdb_get_movie(client, film.tmdb_id, api_key)
             if data:
                 _apply_tmdb_data(session, film, data)
                 session.add(film)
@@ -435,8 +437,8 @@ def _enrich_with_tmdb(session: Session, profile_usernames: set[str]):
 
         # Fetch keywords and credits for any film that doesn't have them yet
         for film in session.exec(select(Film).where(Film.tmdb_id != None)).all():
-            _fetch_and_store_keywords(session, client, film)
-            _fetch_and_store_credits(session, client, film)
+            _fetch_and_store_keywords(session, client, film, api_key)
+            _fetch_and_store_credits(session, client, film, api_key)
         session.commit()
 
         # Build recommendation signals from highly-rated seeds
@@ -453,7 +455,7 @@ def _enrich_with_tmdb(session: Session, profile_usernames: set[str]):
             seed = session.get(Film, ufr.film_id)
             if not seed or not seed.tmdb_id:
                 continue
-            for rec in _tmdb_get_recommendations(client, seed.tmdb_id):
+            for rec in _tmdb_get_recommendations(client, seed.tmdb_id, api_key):
                 rec_film = session.exec(
                     select(Film).where(Film.tmdb_id == rec["tmdb_id"])
                 ).first()
@@ -497,18 +499,27 @@ def _enrich_with_tmdb(session: Session, profile_usernames: set[str]):
 # TMDB helpers
 # ---------------------------------------------------------------------------
 
-def _tmdb_search_by_slug(client: httpx.Client, slug: str) -> int | None:
+def get_tmdb_api_key(session: Session) -> str:
+    """Return the TMDB API key, preferring the DB-stored value over the env var."""
+    setting = session.exec(
+        select(AppSetting).where(AppSetting.key == "tmdb_api_key")
+    ).first()
+    if setting and setting.value:
+        return setting.value
+    return settings.tmdb_api_key
+
+
+def _tmdb_search_by_slug(client: httpx.Client, slug: str, api_key: str) -> int | None:
     """Derive a search query from a Letterboxd slug (e.g. 'the-godfather-1972')."""
-    import re
     parts = slug.rsplit("-", 1)
     year = int(parts[1]) if len(parts) == 2 and parts[1].isdigit() else None
     title = parts[0].replace("-", " ") if year else slug.replace("-", " ")
-    return _tmdb_search(client, title, year)
+    return _tmdb_search(client, title, year, api_key)
 
 
-def _tmdb_search(client: httpx.Client, title: str, year: int | None) -> int | None:
+def _tmdb_search(client: httpx.Client, title: str, year: int | None, api_key: str) -> int | None:
     try:
-        params = {"api_key": settings.tmdb_api_key, "query": title}
+        params = {"api_key": api_key, "query": title}
         if year:
             params["year"] = year
         r = client.get(f"{TMDB_BASE}/search/movie", params=params)
@@ -518,11 +529,11 @@ def _tmdb_search(client: httpx.Client, title: str, year: int | None) -> int | No
         return None
 
 
-def _tmdb_get_movie(client: httpx.Client, tmdb_id: int) -> dict | None:
+def _tmdb_get_movie(client: httpx.Client, tmdb_id: int, api_key: str) -> dict | None:
     try:
         r = client.get(
             f"{TMDB_BASE}/movie/{tmdb_id}",
-            params={"api_key": settings.tmdb_api_key},
+            params={"api_key": api_key},
         )
         r.raise_for_status()
         d = r.json()
@@ -545,14 +556,14 @@ def _tmdb_get_movie(client: httpx.Client, tmdb_id: int) -> dict | None:
 
 
 def _tmdb_get_recommendations(
-    client: httpx.Client, tmdb_id: int, pages: int = 3
+    client: httpx.Client, tmdb_id: int, api_key: str, pages: int = 3
 ) -> list[dict]:
     results = []
     for page in range(1, pages + 1):
         try:
             r = client.get(
                 f"{TMDB_BASE}/movie/{tmdb_id}/recommendations",
-                params={"api_key": settings.tmdb_api_key, "page": page},
+                params={"api_key": api_key, "page": page},
             )
             data = r.json().get("results", [])
             if not data:
@@ -620,7 +631,7 @@ def _apply_tmdb_data(session: Session, film: Film, data: dict):
             session.add(FilmGenreLink(film_id=film.id, genre_id=genre.id))
 
 
-def _fetch_and_store_keywords(session: Session, client: httpx.Client, film: Film):
+def _fetch_and_store_keywords(session: Session, client: httpx.Client, film: Film, api_key: str):
     """Fetch TMDB keywords for a film and persist them if not already stored."""
     if not film.tmdb_id:
         return
@@ -632,7 +643,7 @@ def _fetch_and_store_keywords(session: Session, client: httpx.Client, film: Film
     try:
         r = client.get(
             f"{TMDB_BASE}/movie/{film.tmdb_id}/keywords",
-            params={"api_key": settings.tmdb_api_key},
+            params={"api_key": api_key},
         )
         r.raise_for_status()
         keywords = r.json().get("keywords", [])
@@ -665,7 +676,7 @@ def _parse_date(date_str: str | None) -> datetime | None:
         return None
 
 
-def _fetch_and_store_credits(session: Session, client: httpx.Client, film: Film):
+def _fetch_and_store_credits(session: Session, client: httpx.Client, film: Film, api_key: str):
     """Fetch TMDB credits (director + top 3 cast) and persist if not already stored."""
     if not film.tmdb_id:
         return
@@ -677,7 +688,7 @@ def _fetch_and_store_credits(session: Session, client: httpx.Client, film: Film)
     try:
         r = client.get(
             f"{TMDB_BASE}/movie/{film.tmdb_id}/credits",
-            params={"api_key": settings.tmdb_api_key},
+            params={"api_key": api_key},
         )
         r.raise_for_status()
         data = r.json()

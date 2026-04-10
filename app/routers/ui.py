@@ -5,10 +5,11 @@ from sqlmodel import Session, select
 
 from app.config import settings
 from app.models.db import get_session
+from app.models.film import AppSetting, Genre, FilmKeyword
 from app.models.profile import UserProfile
 from app.models.user import LBUser
 from app.recommender.affinity import build_genre_affinity, build_keyword_affinity
-from app.models.film import Genre, FilmKeyword
+from app.tasks.scrape_user import get_tmdb_api_key
 
 router = APIRouter()
 templates = Jinja2Templates(directory="app/templates")
@@ -36,10 +37,19 @@ TMDB_GENRES = [
 
 
 @router.get("/", response_class=HTMLResponse)
-async def index(request: Request):
+async def index(request: Request, session: Session = Depends(get_session)):
+    if not settings.demo_mode and not get_tmdb_api_key(session):
+        return RedirectResponse(url="/setup/wizard", status_code=302)
     return templates.TemplateResponse(
         "index.html", {"request": request, "genres": TMDB_GENRES, "demo_mode": settings.demo_mode}
     )
+
+
+@router.get("/setup/wizard", response_class=HTMLResponse)
+async def setup_wizard(request: Request):
+    if settings.demo_mode:
+        return RedirectResponse(url="/", status_code=302)
+    return templates.TemplateResponse("setup_wizard.html", {"request": request, "demo_mode": False})
 
 
 @router.get("/setup", response_class=HTMLResponse)

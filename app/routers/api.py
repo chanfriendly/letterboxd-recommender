@@ -12,9 +12,11 @@ from app.models.film import Film, VetoedFilm, AppSetting
 from app.models.job import ScrapeJob
 from app.models.profile import UserProfile
 from app.models.user import LBUser, UserFilmRating
+import httpx as _httpx
+
 from app.tasks.scrape_user import (
     run_recommendation_job, refresh_all_profiles, process_zip_task,
-    compute_embeddings_task, _get_app_setting, _set_app_setting,
+    compute_embeddings_task, _get_app_setting, _set_app_setting, get_tmdb_api_key,
 )
 
 router = APIRouter(prefix="/api")
@@ -55,6 +57,44 @@ class ProfileRequest(BaseModel):
 @router.get("/genres")
 def list_genres():
     return TMDB_GENRES
+
+
+# ---------------------------------------------------------------------------
+# Setup wizard endpoints
+# ---------------------------------------------------------------------------
+
+class TmdbKeyRequest(BaseModel):
+    api_key: str
+
+
+@router.get("/setup/status")
+def setup_status(session: Session = Depends(get_session)):
+    """Return first-run setup state so the wizard knows which step to show."""
+    has_key = bool(get_tmdb_api_key(session))
+    profiles = session.exec(select(UserProfile).where(UserProfile.has_data == True)).all()  # noqa: E712
+    return {"has_tmdb_key": has_key, "has_profiles": len(profiles) > 0}
+
+
+@router.post("/setup/tmdb-key")
+def save_tmdb_key(body: TmdbKeyRequest, session: Session = Depends(get_session)):
+    """Validate a TMDB API key against the TMDB API, then persist it to AppSetting."""
+    key = body.api_key.strip()
+    if not key:
+        raise HTTPException(status_code=400, detail="API key cannot be empty.")
+    try:
+        resp = _httpx.get(
+            "https://api.themoviedb.org/3/configuration",
+            params={"api_key": key},
+            timeout=10,
+        )
+        if resp.status_code == 401:
+            raise HTTPException(status_code=400, detail="Invalid API key — TMDB rejected it. Double-check that you copied the v3 auth key.")
+        resp.raise_for_status()
+    except _httpx.HTTPError:
+        raise HTTPException(status_code=400, detail="Could not reach TMDB to verify the key. Check your internet connection and try again.")
+    _set_app_setting(session, "tmdb_api_key", key)
+    session.commit()
+    return {"ok": True}
 
 
 @router.get("/profiles")

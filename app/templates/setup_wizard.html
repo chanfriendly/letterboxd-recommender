@@ -1,0 +1,315 @@
+{% extends "base.html" %}
+{% block title %}Get Started — Letterboxd Recommender{% endblock %}
+
+{% block content %}
+<div class="max-w-lg mx-auto">
+
+  <!-- Progress indicator -->
+  <div class="flex items-center gap-3 mb-10">
+    <div id="step-dot-1" class="w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold transition-all bg-[#00c030] text-white">1</div>
+    <div id="step-line" class="flex-1 h-0.5 bg-gray-700 rounded transition-all"></div>
+    <div id="step-dot-2" class="w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold transition-all bg-gray-700 text-gray-500">2</div>
+    <span id="step-label" class="text-sm text-gray-500 w-24 text-right">Step 1 of 2</span>
+  </div>
+
+  <!-- ------------------------------------------------------------------ -->
+  <!-- Step 1: TMDB API key                                                -->
+  <!-- ------------------------------------------------------------------ -->
+  <div id="step-1">
+    <h1 class="text-2xl font-bold mb-2">Connect to the movie database</h1>
+    <p class="text-gray-400 text-sm mb-6">
+      Recommendations are powered by <a href="https://www.themoviedb.org" target="_blank" class="text-[#00c030] hover:underline">TMDB</a> — a free, community-built movie database.
+      Getting an API key takes about 2 minutes and costs nothing.
+    </p>
+
+    <div class="bg-[#16213e] rounded-xl p-5 mb-6 space-y-3">
+      <p class="text-sm font-semibold text-white">How to get your free API key</p>
+      <ol class="space-y-2 text-sm text-gray-400">
+        <li class="flex gap-3">
+          <span class="text-[#00c030] font-bold shrink-0">1.</span>
+          <span>Go to <a href="https://www.themoviedb.org/signup" target="_blank" class="text-[#00c030] hover:underline">themoviedb.org/signup</a> and create a free account (or log in if you have one)</span>
+        </li>
+        <li class="flex gap-3">
+          <span class="text-[#00c030] font-bold shrink-0">2.</span>
+          <span>Visit <a href="https://www.themoviedb.org/settings/api" target="_blank" class="text-[#00c030] hover:underline">themoviedb.org/settings/api</a></span>
+        </li>
+        <li class="flex gap-3">
+          <span class="text-[#00c030] font-bold shrink-0">3.</span>
+          <span>Click <span class="text-white font-medium">Create</span> under "API Key (v3 auth)" — choose <span class="text-white font-medium">Personal</span> use when asked</span>
+        </li>
+        <li class="flex gap-3">
+          <span class="text-[#00c030] font-bold shrink-0">4.</span>
+          <span>Copy the long key that appears and paste it below</span>
+        </li>
+      </ol>
+    </div>
+
+    <div class="space-y-3">
+      <div>
+        <label class="block text-sm text-gray-400 mb-1">Your TMDB API Key (v3 auth)</label>
+        <input id="tmdb-key-input" type="text" placeholder="Paste your key here…"
+               class="w-full bg-[#0f3460] border border-gray-600 rounded-lg px-4 py-3 text-white
+                      placeholder-gray-600 focus:outline-none focus:border-[#00c030] transition font-mono text-sm"/>
+      </div>
+
+      <div id="key-error" class="hidden text-red-400 text-sm px-1"></div>
+
+      <button onclick="verifyKey()"
+              id="verify-btn"
+              class="w-full bg-[#00c030] hover:bg-[#00a828] text-white font-semibold
+                     py-3 rounded-lg transition text-sm flex items-center justify-center gap-2">
+        <span id="verify-btn-text">Verify &amp; Continue →</span>
+        <svg id="verify-spinner" class="hidden animate-spin h-4 w-4" fill="none" viewBox="0 0 24 24">
+          <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+          <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/>
+        </svg>
+      </button>
+    </div>
+  </div>
+
+  <!-- ------------------------------------------------------------------ -->
+  <!-- Step 2: Letterboxd profile import                                   -->
+  <!-- ------------------------------------------------------------------ -->
+  <div id="step-2" class="hidden">
+    <h1 class="text-2xl font-bold mb-2">Import your Letterboxd history</h1>
+    <p class="text-gray-400 text-sm mb-6">
+      We need your watch history to generate personalised recommendations.
+      This is a one-time import — new watches sync automatically every 6 hours after that.
+    </p>
+
+    <div class="bg-[#16213e] rounded-xl p-5 mb-6 space-y-3">
+      <p class="text-sm font-semibold text-white">How to export your Letterboxd data</p>
+      <ol class="space-y-2 text-sm text-gray-400">
+        <li class="flex gap-3">
+          <span class="text-[#00c030] font-bold shrink-0">1.</span>
+          <span>Log in to Letterboxd and go to <a href="https://letterboxd.com/settings/data/" target="_blank" class="text-[#00c030] hover:underline">letterboxd.com/settings/data/</a></span>
+        </li>
+        <li class="flex gap-3">
+          <span class="text-[#00c030] font-bold shrink-0">2.</span>
+          <span>Click <span class="text-white font-medium">Export Your Data</span> — Letterboxd will email you a download link within a few minutes</span>
+        </li>
+        <li class="flex gap-3">
+          <span class="text-[#00c030] font-bold shrink-0">3.</span>
+          <span>Download the <span class="text-white font-medium">.zip</span> file from the email — don't unzip it</span>
+        </li>
+        <li class="flex gap-3">
+          <span class="text-[#00c030] font-bold shrink-0">4.</span>
+          <span>Fill in the form below and upload the .zip</span>
+        </li>
+      </ol>
+    </div>
+
+    <div class="space-y-4">
+      <div>
+        <label class="block text-sm text-gray-400 mb-1">Your name <span class="text-gray-600">(optional — shown in the app)</span></label>
+        <input id="display-name" type="text" placeholder="e.g. Chan"
+               class="w-full bg-[#0f3460] border border-gray-600 rounded-lg px-4 py-3 text-white
+                      placeholder-gray-600 focus:outline-none focus:border-[#00c030] transition text-sm"/>
+      </div>
+
+      <div>
+        <label class="block text-sm text-gray-400 mb-1">Your Letterboxd username</label>
+        <input id="lb-username" type="text" placeholder="username" autocomplete="off"
+               class="w-full bg-[#0f3460] border border-gray-600 rounded-lg px-4 py-3 text-white
+                      placeholder-gray-600 focus:outline-none focus:border-[#00c030] transition text-sm"/>
+      </div>
+
+      <div>
+        <label class="block text-sm text-gray-400 mb-1">Your Letterboxd data export <span class="text-gray-600">(.zip file)</span></label>
+        <input id="lb-zip" type="file" accept=".zip"
+               class="w-full bg-[#0f3460] border border-gray-600 rounded-lg px-4 py-3 text-white
+                      file:mr-4 file:py-1 file:px-3 file:rounded file:border-0
+                      file:text-sm file:bg-[#00c030] file:text-white file:cursor-pointer
+                      focus:outline-none focus:border-[#00c030] transition text-sm"/>
+      </div>
+
+      <div id="import-error" class="hidden text-red-400 text-sm px-1"></div>
+
+      <!-- Progress state -->
+      <div id="import-progress" class="hidden bg-[#0f3460] rounded-lg px-4 py-3 flex items-center gap-3 text-sm">
+        <svg id="import-spinner" class="animate-spin h-4 w-4 text-[#00c030] shrink-0" fill="none" viewBox="0 0 24 24">
+          <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+          <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/>
+        </svg>
+        <span id="import-progress-text" class="text-gray-300">Uploading…</span>
+      </div>
+
+      <button onclick="importProfile()"
+              id="import-btn"
+              class="w-full bg-[#00c030] hover:bg-[#00a828] text-white font-semibold
+                     py-3 rounded-lg transition text-sm">
+        Import &amp; Finish →
+      </button>
+
+      <p class="text-center text-gray-600 text-xs">
+        Want to add a second person? You can do that from Settings after setup.
+      </p>
+    </div>
+  </div>
+
+  <!-- ------------------------------------------------------------------ -->
+  <!-- Step done                                                           -->
+  <!-- ------------------------------------------------------------------ -->
+  <div id="step-done" class="hidden text-center space-y-6 py-8">
+    <div class="text-6xl">🎬</div>
+    <div>
+      <h1 class="text-2xl font-bold mb-2">You're all set!</h1>
+      <p class="text-gray-400 text-sm">Your history is importing in the background. Recommendations will improve as more films are processed.</p>
+    </div>
+    <a href="/"
+       class="inline-block bg-[#00c030] hover:bg-[#00a828] text-white font-semibold
+              px-8 py-3 rounded-lg transition text-sm">
+      View Recommendations →
+    </a>
+  </div>
+
+</div>
+
+<script>
+  // On load, check if we're already past step 1
+  (async () => {
+    const res = await fetch('/api/setup/status');
+    const s = await res.json();
+    if (s.has_tmdb_key && s.has_profiles) {
+      window.location.href = '/';
+    } else if (s.has_tmdb_key) {
+      goToStep2();
+    }
+  })();
+
+  async function verifyKey() {
+    const key = document.getElementById('tmdb-key-input').value.trim();
+    const errorEl = document.getElementById('key-error');
+    errorEl.classList.add('hidden');
+
+    if (!key) {
+      errorEl.textContent = 'Please paste your API key first.';
+      errorEl.classList.remove('hidden');
+      return;
+    }
+
+    const btn = document.getElementById('verify-btn');
+    const btnText = document.getElementById('verify-btn-text');
+    const spinner = document.getElementById('verify-spinner');
+    btn.disabled = true;
+    btnText.textContent = 'Verifying…';
+    spinner.classList.remove('hidden');
+
+    const res = await fetch('/api/setup/tmdb-key', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ api_key: key }),
+    });
+    const data = await res.json();
+
+    btn.disabled = false;
+    btnText.textContent = 'Verify & Continue →';
+    spinner.classList.add('hidden');
+
+    if (!res.ok) {
+      errorEl.textContent = data.detail || 'Something went wrong. Please try again.';
+      errorEl.classList.remove('hidden');
+      return;
+    }
+
+    goToStep2();
+  }
+
+  function goToStep2() {
+    document.getElementById('step-1').classList.add('hidden');
+    document.getElementById('step-2').classList.remove('hidden');
+    document.getElementById('step-dot-1').className = 'w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold transition-all bg-[#00c030]/30 text-[#00c030]';
+    document.getElementById('step-dot-1').textContent = '✓';
+    document.getElementById('step-dot-2').className = 'w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold transition-all bg-[#00c030] text-white';
+    document.getElementById('step-line').classList.add('bg-[#00c030]');
+    document.getElementById('step-label').textContent = 'Step 2 of 2';
+  }
+
+  async function importProfile() {
+    const username = document.getElementById('lb-username').value.trim();
+    const displayName = document.getElementById('display-name').value.trim();
+    const file = document.getElementById('lb-zip').files[0];
+    const errorEl = document.getElementById('import-error');
+    errorEl.classList.add('hidden');
+
+    if (!username) { errorEl.textContent = 'Please enter your Letterboxd username.'; errorEl.classList.remove('hidden'); return; }
+    if (!file)     { errorEl.textContent = 'Please select your Letterboxd .zip export file.'; errorEl.classList.remove('hidden'); return; }
+
+    const btn = document.getElementById('import-btn');
+    btn.disabled = true;
+    setImportProgress('Creating profile…');
+
+    // Create profile
+    const profileRes = await fetch('/api/profiles', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, display_name: displayName }),
+    });
+    const profileData = await profileRes.json();
+    if (!profileRes.ok) {
+      errorEl.textContent = profileData.detail || 'Could not create profile.';
+      errorEl.classList.remove('hidden');
+      btn.disabled = false;
+      hideImportProgress();
+      return;
+    }
+
+    // Upload ZIP
+    setImportProgress('Uploading your data export…');
+    const form = new FormData();
+    form.append('file', file);
+    const uploadRes = await fetch(`/api/profiles/${profileData.id}/upload`, { method: 'POST', body: form });
+    const uploadData = await uploadRes.json();
+    if (!uploadRes.ok) {
+      errorEl.textContent = uploadData.detail || 'Upload failed.';
+      errorEl.classList.remove('hidden');
+      btn.disabled = false;
+      hideImportProgress();
+      return;
+    }
+
+    setImportProgress('Importing your history — this may take a few minutes…');
+    pollImport(profileData.id);
+  }
+
+  function pollImport(profileId) {
+    const interval = setInterval(async () => {
+      const res = await fetch('/api/profiles');
+      const profiles = await res.json();
+      const profile = profiles.find(p => p.id === profileId);
+      if (!profile) { clearInterval(interval); return; }
+
+      if (profile.scrape_status === 'ready') {
+        clearInterval(interval);
+        document.getElementById('step-2').classList.add('hidden');
+        document.getElementById('step-done').classList.remove('hidden');
+      } else if (profile.scrape_status === 'error') {
+        clearInterval(interval);
+        const errorEl = document.getElementById('import-error');
+        errorEl.textContent = `Import error: ${profile.scrape_error || 'Unknown error'}`;
+        errorEl.classList.remove('hidden');
+        document.getElementById('import-btn').disabled = false;
+        hideImportProgress();
+      }
+    }, 3000);
+  }
+
+  function setImportProgress(text) {
+    document.getElementById('import-progress').classList.remove('hidden');
+    document.getElementById('import-progress-text').textContent = text;
+    document.getElementById('import-btn').classList.add('hidden');
+  }
+
+  function hideImportProgress() {
+    document.getElementById('import-progress').classList.add('hidden');
+    document.getElementById('import-btn').classList.remove('hidden');
+  }
+
+  // Allow Enter key on the API key field
+  document.addEventListener('DOMContentLoaded', () => {
+    document.getElementById('tmdb-key-input')?.addEventListener('keydown', e => {
+      if (e.key === 'Enter') verifyKey();
+    });
+  });
+</script>
+{% endblock %}
