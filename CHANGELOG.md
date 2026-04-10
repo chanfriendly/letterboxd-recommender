@@ -6,9 +6,9 @@
 
 ## Current Status
 
-**Phase:** Feature-complete MVP / refinement  
-**Last updated:** 2026-04-09  
-**Active focus:** Scoring improvements shipped — temporal weighting + director/cast affinity live.
+**Phase:** Accessibility / distribution  
+**Last updated:** 2026-04-10  
+**Active focus:** One-click cloud deploy + guided setup wizard shipped.
 
 ---
 
@@ -98,10 +98,11 @@
 
 ## Next Steps
 
-1. Trigger a re-import or sync for existing users so director/cast credits get backfilled via `_enrich_with_tmdb`
-2. Pick next algorithm improvement from the backlog (least-misery scoring for groups, or item-based CF)
-3. Design the serendipity/contrast tier (held — needs more thought before implementation)
-4. Investigate NAS load average (~13) — determine if this app is a contributor
+1. Test the Render deploy button end-to-end from a fresh account — confirm wizard flow works
+2. Plan desktop app (Option C) — package app as a Mac/Windows installer (Tauri or Electron wrapping Docker)
+3. Trigger a re-import/sync for existing users to backfill director/cast credits
+4. Pick next algorithm improvement (least-misery scoring for groups, or item-based CF)
+5. Design the serendipity/contrast tier (held — needs more thought)
 
 ---
 
@@ -122,6 +123,16 @@
 
 ### Session 001–007 — [dates not recorded]
 **Summary:** Full project build from scratch through bug-fix phase. See Completed Work above.
+
+### Session 009 — 2026-04-10
+**Goal:** Make app accessible to non-technical users via cloud deploy + guided setup wizard  
+**Outcome:**
+- One-click Render and Railway deploy support (`render.yaml`, `railway.toml`, `supervisord.conf`). Supervisord collapses web + worker + beat into one container to avoid the shared-SQLite-disk problem on cloud hosting. NAS Docker Compose setup unaffected.
+- Guided setup wizard at `/setup/wizard` — step 1 collects and validates TMDB API key in-browser (stored in AppSetting, no env var or file editing required); step 2 walks through Letterboxd export and import. Index redirects to wizard on first run.
+- TMDB key is now read from AppSetting first, falling back to env var — existing installs with key in `.env` continue to work unchanged.
+- `render.yaml` updated to remove `TMDB_API_KEY` env var (wizard handles it). README updated to reflect wizard-based onboarding. `TMDB_API_KEY` is now optional at deploy time.
+
+**Next session should start with:** Test the Render deploy button end-to-end from a fresh account. Then consider desktop app (Option C) planning.
 
 ### Session 008 — 2026-04-09
 **Goal:** Add CLAUDE.md, CHANGELOG.md, push demo mode, review and improve scoring  

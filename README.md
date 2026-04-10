@@ -30,9 +30,8 @@ The easiest way to run Letterboxd Recommender is to deploy it to a cloud host. Y
 [![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/chanfriendly/letterboxd-recommender)
 
 1. Click the button above and sign in to Render (free account)
-2. When prompted for `TMDB_API_KEY`, get your free key at [themoviedb.org/settings/api](https://www.themoviedb.org/settings/api) — takes about 2 minutes
-3. Click **Deploy** — Render will build and start the app automatically
-4. Once deployed, open your Render URL and go to **Setup** to add your Letterboxd profile
+2. Click **Deploy** — no environment variables needed upfront
+3. Once deployed, open your Render URL — the app will walk you through the rest
 
 **Deploy to Railway** *(alternative)*
 
@@ -40,8 +39,7 @@ The easiest way to run Letterboxd Recommender is to deploy it to a cloud host. Y
 
 1. Click the button and sign in to Railway
 2. Add a Redis plugin from the Railway dashboard
-3. Set `TMDB_API_KEY` in your environment variables
-4. Deploy — then open your Railway URL and go to **Setup**
+3. Deploy — then open your Railway URL and follow the setup wizard
 
 ---
 
@@ -53,36 +51,21 @@ Requires Docker & Docker Compose installed on your machine.
 git clone https://github.com/chanfriendly/letterboxd-recommender.git
 cd letterboxd-recommender
 cp .env.example .env
-# Edit .env and add your TMDB_API_KEY
 docker compose up -d
 ```
 
-Then open `http://localhost:8020` in your browser.
+Then open `http://localhost:8020` — the app will guide you through setup.
 
-## Configuration (self-hosted only)
+> **Optional:** You can set `TMDB_API_KEY` in `.env` before starting to skip the first step of the setup wizard.
 
-Copy `.env.example` to `.env` and fill in the values:
+## First-time setup
 
-```env
-TMDB_API_KEY=your_key_here
-REDIS_URL=redis://redis:6379/0
-DATABASE_URL=sqlite:///./data/letterboxd_rec.db
-```
+When you open the app for the first time, a setup wizard walks you through everything:
 
-## Importing your watch history
+1. **Connect to TMDB** — the app asks for a free TMDB API key with step-by-step instructions and a direct link. Takes about 2 minutes. The key is saved inside the app — no config files to edit.
+2. **Import your Letterboxd history** — the wizard explains how to export your data from Letterboxd and upload it. New diary entries sync automatically every 6 hours after that.
 
-Letterboxd does not offer a public API for reading watch history, so you need to export your data manually — once. After that, new entries are picked up automatically via RSS.
-
-<img width="635" height="910" alt="image" src="https://github.com/user-attachments/assets/dab1c7d0-65d3-4fb0-8b8a-f130138a7cc6" />
-
-
-1. Log in to Letterboxd and go to **letterboxd.com/settings/data/**
-2. Click **Export Your Data** — Letterboxd will email you a download link
-3. Download the `.zip` file (do not unzip it)
-4. Open the app's **Setup** page, enter your username, and upload the `.zip`
-5. The app processes the ZIP in the background and enriches every film with TMDB metadata; this takes a few minutes for large collections
-
-Repeat for each person in your group.
+To add more people to your group, go to **Settings** after the initial setup.
 
 ## How it works
 

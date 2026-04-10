@@ -8,8 +8,6 @@ services:
       mountPath: /app/data
       sizeGB: 1
     envVars:
-      - key: TMDB_API_KEY
-        sync: false   # Render will prompt you to enter this value
       - key: REDIS_URL
         fromService:
           name: letterboxd-redis
