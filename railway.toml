@@ -1,0 +1,12 @@
+[build]
+builder = "dockerfile"
+dockerfilePath = "Dockerfile"
+
+[deploy]
+# supervisord runs web + worker + beat in one container.
+# Add a Redis plugin from the Railway dashboard and set REDIS_URL.
+startCommand = "supervisord -c /app/supervisord.conf"
+healthcheckPath = "/"
+healthcheckTimeout = 300
+restartPolicyType = "on_failure"
+restartPolicyMaxRetries = 3

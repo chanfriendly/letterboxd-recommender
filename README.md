@@ -19,13 +19,35 @@ A self-hosted web app that recommends films based on your Letterboxd watch histo
 - **Veto system** — permanently exclude any film from recommendations with a 6-second undo window
 - **Self-hosted** — your data never leaves your server; runs entirely in Docker
 
-## Requirements
+## Deploy
 
-- Docker & Docker Compose
-- A free [TMDB API key](https://www.themoviedb.org/settings/api)
-- A Letterboxd account (free tier is fine)
+### One-click cloud deploy (no technical setup required)
 
-## Quick start
+The easiest way to run Letterboxd Recommender is to deploy it to a cloud host. You'll need one free account and one free API key — that's it.
+
+**Deploy to Render** *(recommended — free tier available)*
+
+[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/chanfriendly/letterboxd-recommender)
+
+1. Click the button above and sign in to Render (free account)
+2. When prompted for `TMDB_API_KEY`, get your free key at [themoviedb.org/settings/api](https://www.themoviedb.org/settings/api) — takes about 2 minutes
+3. Click **Deploy** — Render will build and start the app automatically
+4. Once deployed, open your Render URL and go to **Setup** to add your Letterboxd profile
+
+**Deploy to Railway** *(alternative)*
+
+[![Deploy on Railway](https://railway.app/button.svg)](https://railway.app/new/template?template=https://github.com/chanfriendly/letterboxd-recommender)
+
+1. Click the button and sign in to Railway
+2. Add a Redis plugin from the Railway dashboard
+3. Set `TMDB_API_KEY` in your environment variables
+4. Deploy — then open your Railway URL and go to **Setup**
+
+---
+
+### Self-hosted with Docker (advanced)
+
+Requires Docker & Docker Compose installed on your machine.
 
 ```bash
 git clone https://github.com/chanfriendly/letterboxd-recommender.git
@@ -37,7 +59,7 @@ docker compose up -d
 
 Then open `http://localhost:8020` in your browser.
 
-## Configuration
+## Configuration (self-hosted only)
 
 Copy `.env.example` to `.env` and fill in the values:
 
