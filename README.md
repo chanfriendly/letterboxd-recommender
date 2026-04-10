@@ -1,10 +1,8 @@
 # Letterboxd Recommender
 
-A self-hosted web app that recommends films based on your Letterboxd watch history. Works great for couples or small groups — it combines everyone's ratings, excludes anything anyone has already seen, and finds films you'd all enjoy.
+A film recommendation app for couples and small groups. Import your Letterboxd watch histories, pick a mood, and get recommendations scored across everyone — filtered to films none of you have seen.
 
 <img width="1915" height="911" alt="image" src="https://github.com/user-attachments/assets/bac3852d-2f91-44cf-a5eb-6a9e835c07f5" />
-
-
 
 ## Features
 
@@ -14,38 +12,22 @@ A self-hosted web app that recommends films based on your Letterboxd watch histo
 - **Already-seen exclusion** — films watched by *anyone* in the group (rated or not) are excluded from recommendations
 - **Genre mood filter** — pick a genre (or several) before asking for recommendations
 - **Collaborative filtering** — mean-centered cosine similarity on your ratings matrix, augmented with TMDB recommendation signals
-- **Semantic matching** — optional AI embedding model reads each film's plot and finds thematic throughlines across genres (e.g. "moral ambiguity under pressure" across war, crime, and drama)
-- **Affinity scoring** — scores candidates by genre, thematic keyword, director, and cast, blended by signal strength; all signals are temporally weighted so recent ratings count more than old ones
+- **Semantic matching** — optional AI embedding model reads each film's plot and finds thematic throughlines across genres
+- **Affinity scoring** — scores candidates by genre, thematic keyword, director, and cast; all signals are temporally weighted so recent ratings count more than old ones
 - **Veto system** — permanently exclude any film from recommendations with a 6-second undo window
-- **Self-hosted** — your data never leaves your server; runs entirely in Docker
+- **Self-hosted** — your data never leaves your machine
 
-## Deploy
+## Install
 
-### One-click cloud deploy (no technical setup required)
+### Mac app *(coming soon)*
 
-The easiest way to run Letterboxd Recommender is to deploy it to a cloud host. You'll need one free account and one free API key — that's it.
+Download, drag to Applications, click the icon. No setup required — the app walks you through everything in-browser.
 
-**Deploy to Render** *(recommended — free tier available)*
+> The Mac app is in development. Star or watch this repo to be notified when it's available.
 
-[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/chanfriendly/letterboxd-recommender)
+### Self-hosted with Docker
 
-1. Click the button above and sign in to Render (free account)
-2. Click **Deploy** — no environment variables needed upfront
-3. Once deployed, open your Render URL — the app will walk you through the rest
-
-**Deploy to Railway** *(alternative)*
-
-[![Deploy on Railway](https://railway.app/button.svg)](https://railway.app/new/template?template=https://github.com/chanfriendly/letterboxd-recommender)
-
-1. Click the button and sign in to Railway
-2. Add a Redis plugin from the Railway dashboard
-3. Deploy — then open your Railway URL and follow the setup wizard
-
----
-
-### Self-hosted with Docker (advanced)
-
-Requires Docker & Docker Compose installed on your machine.
+Requires Docker & Docker Compose.
 
 ```bash
 git clone https://github.com/chanfriendly/letterboxd-recommender.git
@@ -54,13 +36,13 @@ cp .env.example .env
 docker compose up -d
 ```
 
-Then open `http://localhost:8020` — the app will guide you through setup.
+Open `http://localhost:8020` — a setup wizard walks you through connecting to TMDB and importing your first Letterboxd profile.
 
-> **Optional:** You can set `TMDB_API_KEY` in `.env` before starting to skip the first step of the setup wizard.
+> **Optional:** Set `TMDB_API_KEY` in `.env` before starting to skip step 1 of the setup wizard.
 
 ## First-time setup
 
-When you open the app for the first time, a setup wizard walks you through everything:
+When you open the app, a setup wizard walks you through everything:
 
 1. **Connect to TMDB** — the app asks for a free TMDB API key with step-by-step instructions and a direct link. Takes about 2 minutes. The key is saved inside the app — no config files to edit.
 2. **Import your Letterboxd history** — the wizard explains how to export your data from Letterboxd and upload it. New diary entries sync automatically every 6 hours after that.
@@ -113,8 +95,6 @@ Letterboxd export ZIP
 
 The `data/` directory (SQLite DB + temporary upload files) is volume-mounted and excluded from git. Back it up if you care about your import history.
 
-The Docker image is based on `mcr.microsoft.com/playwright/python` (~2 GB) — Playwright is included for potential future use but is not required for the current CSV-based import flow.
-
 To expose the app externally, put it behind a reverse proxy (nginx, Traefik) or use Tailscale Funnel:
 
 ```bash
@@ -125,7 +105,6 @@ docker exec tailscale tailscale funnel --bg 8020
 
 <img width="626" height="694" alt="image" src="https://github.com/user-attachments/assets/b13da02a-77cf-4795-9beb-4f2c9aa8411f" />
 
-
 Semantic matching is optional and off by default. To enable it, go to the **Setup** page and scroll to "Deep Semantic Matching."
 
 **Local model** (default): the app downloads `all-MiniLM-L6-v2` (~80 MB) into the container on first use. No extra configuration needed.
@@ -134,26 +113,9 @@ Semantic matching is optional and off by default. To enable it, go to the **Setu
 
 The first run embeds every film in your library with an overview (~3,000–4,000 films typically). New films are embedded automatically after each sync. Switching embedding models requires clearing and re-embedding via the "Clear all embeddings" link on the Setup page.
 
-## Known issues / next session
+## Known issues
 
-- **Already-seen films appearing in results (existing installs)** — Letterboxd diary entries sometimes use short-code slugs (e.g. `2DjO`) instead of canonical film slugs. Older versions of the import pipeline stored the short code as the film title, so TMDB lookup failed and these records were left as stubs with no `tmdb_id`. The deduplication step (`_expand_seen_by_tmdb_id`) can't bridge a stub with no TMDB ID to its counterpart in the recommendation pool. **Fix:** the import pipeline now carries the real `Name`/`Year` from the CSV through to TMDB lookup. Re-uploading your Letterboxd export ZIP will resolve existing stubs automatically — the import detects stub records (title == slug) and re-attempts enrichment with the real title from the CSV.
-
-## Algorithm improvement ideas
-
-### Better group recommendations
-- **Least-misery scoring** — for couples, the bottleneck is the person who'd enjoy it least. A hybrid of `(avg + min) / 2` would surface films both people would genuinely enjoy over films one person loves and the other tolerates.
-
-### Better CF scoring
-- **Item-based CF** — instead of finding similar *users*, find similar *films*. More stable with a sparse user base because the item-item matrix accumulates signal across all users.
-- **SVD / matrix factorization** — decompose the ratings matrix into latent taste dimensions. Works well with sparse data and generalises better than nearest-neighbor CF.
-
-### Candidate pool
-- **Expand seed depth dynamically** — if the candidate pool after genre filtering is thin, automatically fetch more TMDB recommendation pages.
-- **Letterboxd Popular lists as signals** — seed candidates from Letterboxd's public genre charts and Top 250 to surface critically loved films TMDB misses.
-- **Diversity pass** — re-rank results to penalise the same director or franchise appearing back-to-back.
-
-<img width="232" height="25" alt="image" src="https://github.com/user-attachments/assets/03887ebc-1a7b-44dd-81fd-eacb96f15ca2" />
-
+- **Already-seen films appearing in results (existing installs)** — caused by stub films with short-code slugs as titles and no `tmdb_id`. Fix: re-upload your Letterboxd export ZIP — the import pipeline now resolves stubs automatically.
 
 ## License
 
