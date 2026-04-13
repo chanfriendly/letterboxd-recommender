@@ -163,13 +163,25 @@ echo "✓ Built: ${APP_BUNDLE}"
 echo ""
 
 # ── Create DMG ────────────────────────────────────────────────────────────────
+# create-dmg makes a prettier DMG with an Applications shortcut, but its
+# AppleScript step requires an active Finder session. Fall back to hdiutil
+# if it fails (e.g. running headless or via SSH).
 echo "▶ Creating DMG…"
-create-dmg \
+if create-dmg \
     --volname "${APP_NAME}" \
     --window-pos 200 120 \
     --window-size 600 400 \
     --icon-size 100 \
     --app-drop-link 450 185 \
     "dist/${APP_NAME}.dmg" \
-    "${APP_BUNDLE}"
-echo "✓ DMG: dist/${APP_NAME}.dmg"
+    "${APP_BUNDLE}" 2>/dev/null; then
+    echo "✓ DMG (styled): dist/${APP_NAME}.dmg"
+else
+    echo "  create-dmg AppleScript failed (headless session?) — falling back to hdiutil"
+    hdiutil create \
+        -volname "${APP_NAME}" \
+        -srcfolder "${APP_BUNDLE}" \
+        -ov -format UDZO \
+        "dist/${APP_NAME}.dmg"
+    echo "✓ DMG: dist/${APP_NAME}.dmg"
+fi
