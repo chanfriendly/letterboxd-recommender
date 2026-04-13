@@ -2,13 +2,14 @@
 Letterboxd Recommender — macOS menu bar app.
 
 Manages bundled Redis + uvicorn + Celery as subprocesses.
-The FastAPI app itself is run as a subprocess — this file is only the menu bar shell.
+Logs to ~/Library/Logs/Letterboxd Recommender/app.log
 """
 
 import os
 import sys
 import time
 import socket
+import logging
 import threading
 import subprocess
 import webbrowser
@@ -16,19 +17,33 @@ from pathlib import Path
 
 import rumps
 
-# ── Configuration ──────────────────────────────────────────────────────────────
+# ── Logging ────────────────────────────────────────────────────────────────────
 
 APP_NAME = "Letterboxd Recommender"
+LOG_DIR = Path.home() / "Library" / "Logs" / APP_NAME
+LOG_DIR.mkdir(parents=True, exist_ok=True)
+
+logging.basicConfig(
+    level=logging.DEBUG,
+    format="%(asctime)s %(levelname)s %(message)s",
+    handlers=[
+        logging.FileHandler(LOG_DIR / "app.log"),
+        logging.StreamHandler(sys.stdout),
+    ],
+)
+log = logging.getLogger(__name__)
+
+# ── Configuration ──────────────────────────────────────────────────────────────
+
 APP_PORT = 8020
 DATA_DIR = Path.home() / "Library" / "Application Support" / APP_NAME
 
 
 def _resources_dir() -> Path:
-    """Return the Resources directory: bundle path in production, repo root in dev."""
+    """Return the Resources directory: bundle path in production, script parent in dev."""
     resource_path = os.environ.get("RESOURCEPATH")
     if resource_path:
         return Path(resource_path)
-    # Running from source: two levels up from this file (desktop/ → repo root)
     return Path(__file__).parent.parent
 
 
@@ -75,14 +90,26 @@ class LetterboxdApp(rumps.App):
             quit_button=None,
         )
 
-        # Start background thread
+        log.info("App initialised — starting services in background thread")
         t = threading.Thread(target=self._start, daemon=True)
         t.start()
 
     # ── Subprocess management ──────────────────────────────────────────────────
 
     def _start(self):
+        try:
+            self._start_services()
+        except Exception:
+            log.exception("Fatal error starting services")
+            self._set_status("Failed to start — see log")
+
+    def _start_services(self):
         DATA_DIR.mkdir(parents=True, exist_ok=True)
+        log.info("Data dir: %s", DATA_DIR)
+        log.info("Resources dir: %s", _resources_dir())
+        log.info("Python: %s", _python_exe())
+        log.info("Redis: %s", _redis_bin())
+        log.info("App src: %s", _app_dir())
 
         env = {
             **os.environ,
@@ -95,52 +122,54 @@ class LetterboxdApp(rumps.App):
         python = str(_python_exe())
         app_dir = str(_app_dir())
 
+        # ── Validate paths ─────────────────────────────────────────────────────
+        if not _python_exe().exists():
+            raise FileNotFoundError(f"Bundled Python not found: {_python_exe()}")
+        if not _redis_bin().exists():
+            raise FileNotFoundError(f"Bundled redis-server not found: {_redis_bin()}")
+        if not _app_dir().exists():
+            raise FileNotFoundError(f"App source not found: {_app_dir()}")
+
         # ── Redis ──────────────────────────────────────────────────────────────
         self._set_status("Starting Redis…")
-        redis_bin = str(_redis_bin())
+        log.info("Starting Redis")
         redis_proc = subprocess.Popen(
-            [redis_bin, "--port", "6379", "--daemonize", "no"],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
+            [str(_redis_bin()), "--port", "6379", "--daemonize", "no"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
         )
         self._procs.append(redis_proc)
 
-        # Give Redis a moment
         for _ in range(20):
             if _port_open(6379):
+                log.info("Redis ready")
                 break
             time.sleep(0.25)
         else:
-            self._set_status("Redis failed to start")
+            out, _ = redis_proc.communicate(timeout=2)
+            log.error("Redis failed to start. Output: %s", out.decode(errors="replace"))
+            self._set_status("Redis failed to start — see log")
             return
 
         # ── uvicorn ────────────────────────────────────────────────────────────
         self._set_status("Starting web server…")
+        log.info("Starting uvicorn on port %s", APP_PORT)
         web_proc = subprocess.Popen(
-            [
-                python, "-m", "uvicorn",
-                "app.main:app",
-                "--host", "127.0.0.1",
-                "--port", str(APP_PORT),
-                "--workers", "1",
-            ],
+            [python, "-m", "uvicorn", "app.main:app",
+             "--host", "127.0.0.1", "--port", str(APP_PORT), "--workers", "1"],
             cwd=app_dir,
             env=env,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
         )
         self._procs.append(web_proc)
 
         # ── Celery worker ──────────────────────────────────────────────────────
         self._set_status("Starting task worker…")
+        log.info("Starting Celery worker")
         worker_proc = subprocess.Popen(
-            [
-                python, "-m", "celery",
-                "-A", "app.tasks.celery_app",
-                "worker",
-                "--loglevel=error",
-                "--concurrency=2",
-            ],
+            [python, "-m", "celery", "-A", "app.tasks.celery_app",
+             "worker", "--loglevel=error", "--concurrency=2"],
             cwd=app_dir,
             env=env,
             stdout=subprocess.DEVNULL,
@@ -149,14 +178,11 @@ class LetterboxdApp(rumps.App):
         self._procs.append(worker_proc)
 
         # ── Celery beat ────────────────────────────────────────────────────────
+        log.info("Starting Celery beat")
         beat_proc = subprocess.Popen(
-            [
-                python, "-m", "celery",
-                "-A", "app.tasks.celery_app",
-                "beat",
-                "--loglevel=error",
-                "--schedule", str(DATA_DIR / "celerybeat-schedule"),
-            ],
+            [python, "-m", "celery", "-A", "app.tasks.celery_app",
+             "beat", "--loglevel=error",
+             "--schedule", str(DATA_DIR / "celerybeat-schedule")],
             cwd=app_dir,
             env=env,
             stdout=subprocess.DEVNULL,
@@ -168,19 +194,28 @@ class LetterboxdApp(rumps.App):
         self._set_status("Waiting for server…")
         for _ in range(60):
             if _port_open(APP_PORT):
+                log.info("Web server ready on port %s", APP_PORT)
                 break
+            # Check if uvicorn crashed early
+            if web_proc.poll() is not None:
+                out = web_proc.stdout.read() if web_proc.stdout else b""
+                log.error("uvicorn exited early. Output:\n%s", out.decode(errors="replace"))
+                self._set_status("Server crashed — see log")
+                return
             time.sleep(0.5)
         else:
-            self._set_status("Server failed to start")
+            log.error("Timed out waiting for server on port %s", APP_PORT)
+            self._set_status("Server timed out — see log")
             return
 
         self._ready = True
-        self._set_status(f"Running on port {APP_PORT}")
+        self._set_status(f"Running — port {APP_PORT}")
         webbrowser.open(f"http://127.0.0.1:{APP_PORT}")
 
     def _stop(self):
         self._ready = False
         self._set_status("Shutting down…")
+        log.info("Shutting down %d subprocesses", len(self._procs))
         for proc in reversed(self._procs):
             try:
                 proc.terminate()
@@ -205,8 +240,15 @@ class LetterboxdApp(rumps.App):
     # ── Helpers ────────────────────────────────────────────────────────────────
 
     def _set_status(self, text: str):
+        log.info("Status: %s", text)
         self._status.title = text
 
 
 if __name__ == "__main__":
-    LetterboxdApp().run()
+    log.info("=== Letterboxd Recommender starting ===")
+    log.info("Resources: %s", _resources_dir())
+    try:
+        LetterboxdApp().run()
+    except Exception:
+        log.exception("Unhandled exception in main")
+        sys.exit(1)

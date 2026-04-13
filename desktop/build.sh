@@ -1,17 +1,13 @@
 #!/usr/bin/env bash
 # build.sh — build Letterboxd Recommender.app + .dmg for macOS
 #
-# Prerequisites (install once):
-#   brew install redis           # source for redis-server binary
-#   brew install create-dmg      # for DMG packaging (optional — skipped if absent)
-#
 # Usage:
 #   cd desktop/
 #   bash build.sh
 #
 # Output:
 #   dist/Letterboxd Recommender.app
-#   dist/Letterboxd Recommender.dmg  (if create-dmg is installed)
+#   dist/Letterboxd Recommender.dmg
 
 set -euo pipefail
 
@@ -32,14 +28,36 @@ else
     PBS_ARCH="x86_64-apple-darwin"
 fi
 
-# python-build-standalone release — update version as needed
+# python-build-standalone release
 PBS_VERSION="20250317"
 PBS_PYTHON="3.12.9"
 PBS_FILENAME="cpython-${PBS_PYTHON}+${PBS_VERSION}-${PBS_ARCH}-install_only_stripped.tar.gz"
 PBS_URL="https://github.com/indygreg/python-build-standalone/releases/download/${PBS_VERSION}/${PBS_FILENAME}"
 
-echo "▶ Building for ${ARCH} (${PBS_ARCH})"
+echo "▶ Building for ${ARCH}"
 echo "▶ Repo root: ${REPO_ROOT}"
+
+# ── Ensure Homebrew is installed ───────────────────────────────────────────────
+if ! command -v brew &>/dev/null; then
+    echo "▶ Homebrew not found — installing…"
+    /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+    # Add brew to PATH for the rest of this script (Apple Silicon path)
+    if [[ -f "/opt/homebrew/bin/brew" ]]; then
+        eval "$(/opt/homebrew/bin/brew shellenv)"
+    fi
+fi
+
+# ── Ensure redis-server is installed ──────────────────────────────────────────
+if ! command -v redis-server &>/dev/null; then
+    echo "▶ redis-server not found — installing via Homebrew…"
+    brew install redis
+fi
+
+# ── Ensure create-dmg is installed ────────────────────────────────────────────
+if ! command -v create-dmg &>/dev/null; then
+    echo "▶ create-dmg not found — installing via Homebrew…"
+    brew install create-dmg
+fi
 
 # ── Clean previous build ───────────────────────────────────────────────────────
 rm -rf dist/
@@ -79,16 +97,19 @@ cat > "${CONTENTS}/Info.plist" << 'EOF'
 EOF
 
 # ── Shell launcher ─────────────────────────────────────────────────────────────
+# Writes crash output to ~/Library/Logs/Letterboxd Recommender/app.log
 cat > "${MACOS}/run" << 'EOF'
-#!/usr/bin/env bash
-# Launcher — sets paths and starts the Python menu bar app.
+#!/bin/bash
 DIR="$(cd "$(dirname "$0")" && pwd)"
 RESOURCES="${DIR}/../Resources"
+LOG_DIR="${HOME}/Library/Logs/Letterboxd Recommender"
+mkdir -p "${LOG_DIR}"
 
 export RESOURCEPATH="${RESOURCES}"
-export PATH="${RESOURCES}/python/bin:${PATH}"
+export PATH="${RESOURCES}/python/bin:/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin"
 
-exec "${RESOURCES}/python/bin/python3" "${RESOURCES}/menubar.py"
+exec "${RESOURCES}/python/bin/python3" "${RESOURCES}/menubar.py" \
+    >> "${LOG_DIR}/app.log" 2>&1
 EOF
 chmod +x "${MACOS}/run"
 
@@ -107,7 +128,6 @@ echo "▶ Extracting Python into bundle…"
 tar -xzf "${PBS_CACHE}" -C "${RESOURCES}"
 # python-build-standalone extracts as "python/" — rename if needed
 if [[ -d "${RESOURCES}/python/install" ]]; then
-    # Some releases nest under install/
     mv "${RESOURCES}/python/install" "${RESOURCES}/python_tmp"
     rm -rf "${RESOURCES}/python"
     mv "${RESOURCES}/python_tmp" "${RESOURCES}/python"
@@ -125,43 +145,31 @@ echo "▶ Copying app files…"
 cp "${DESKTOP_DIR}/menubar.py" "${RESOURCES}/menubar.py"
 
 # ── Copy FastAPI app source into Resources/src/app/ ───────────────────────────
-# uvicorn imports "app.main:app" — the parent of the "app" package must be on PYTHONPATH.
-# We set PYTHONPATH=Resources/src, so the package lives at Resources/src/app/.
 mkdir -p "${RESOURCES}/src"
 cp -r "${REPO_ROOT}/app" "${RESOURCES}/src/app"
-# Remove __pycache__ and .pyc files
 find "${RESOURCES}/src" -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
-echo "▶ App source copied to Resources/src/app/"
+echo "▶ App source copied."
 
 # ── Bundle redis-server ────────────────────────────────────────────────────────
 echo "▶ Bundling redis-server…"
-REDIS_BIN=$(which redis-server 2>/dev/null || echo "")
-if [[ -z "${REDIS_BIN}" ]]; then
-    echo "  ✗ redis-server not found — install with: brew install redis"
-    echo "    Skipping Redis bundle. The app will use a system Redis if available."
-else
-    mkdir -p "${RESOURCES}/bin"
-    cp "${REDIS_BIN}" "${RESOURCES}/bin/redis-server"
-    echo "  ✓ redis-server bundled from ${REDIS_BIN}"
-fi
+REDIS_BIN=$(which redis-server)
+mkdir -p "${RESOURCES}/bin"
+cp "${REDIS_BIN}" "${RESOURCES}/bin/redis-server"
+echo "  ✓ redis-server bundled from ${REDIS_BIN}"
 
 # ── Summary ────────────────────────────────────────────────────────────────────
 echo ""
 echo "✓ Built: ${APP_BUNDLE}"
 echo ""
 
-# ── Create DMG (optional) ──────────────────────────────────────────────────────
-if command -v create-dmg &>/dev/null; then
-    echo "▶ Creating DMG…"
-    create-dmg \
-        --volname "${APP_NAME}" \
-        --window-pos 200 120 \
-        --window-size 600 400 \
-        --icon-size 100 \
-        --app-drop-link 450 185 \
-        "dist/${APP_NAME}.dmg" \
-        "${APP_BUNDLE}"
-    echo "✓ DMG: dist/${APP_NAME}.dmg"
-else
-    echo "  (create-dmg not found — skipping DMG. Install with: brew install create-dmg)"
-fi
+# ── Create DMG ────────────────────────────────────────────────────────────────
+echo "▶ Creating DMG…"
+create-dmg \
+    --volname "${APP_NAME}" \
+    --window-pos 200 120 \
+    --window-size 600 400 \
+    --icon-size 100 \
+    --app-drop-link 450 185 \
+    "dist/${APP_NAME}.dmg" \
+    "${APP_BUNDLE}"
+echo "✓ DMG: dist/${APP_NAME}.dmg"
